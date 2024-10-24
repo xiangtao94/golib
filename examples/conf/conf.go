@@ -16,8 +16,8 @@ type SWebConf struct {
 	Log        zlog.LogConfig `yaml:"log"`
 	Mysql      map[string]orm.MysqlConf
 	Redis      map[string]redis.RedisConf
-	Api        map[string]*http.HttpClientConf // 调用三方后台
-	accessConf middleware.AccessLoggerConfig
+	Api        map[string]http.HttpClientConf // 调用三方后台
+	AccessConf middleware.AccessLoggerConfig
 }
 
 var WebConf SWebConf
@@ -27,22 +27,22 @@ func InitConf() {
 	env.LoadConf("resource.yaml", "mount", &WebConf)
 }
 
-func (s SWebConf) GetZlogConf() zlog.LogConfig {
+func (s *SWebConf) GetZlogConf() zlog.LogConfig {
 	return s.Log
 }
 
-func (s SWebConf) GetAccessLogConf() middleware.AccessLoggerConfig {
-	return s.accessConf
+func (s *SWebConf) GetAccessLogConf() middleware.AccessLoggerConfig {
+	return s.AccessConf
 }
 
-func (s SWebConf) GetHandleRecoveryFunc() gin.RecoveryFunc {
+func (s *SWebConf) GetHandleRecoveryFunc() gin.RecoveryFunc {
 	return nil
 }
 
-func (s SWebConf) GetAppName() string {
+func (s *SWebConf) GetAppName() string {
 	return s.AppName
 }
 
-func (s SWebConf) GetPort() int {
+func (s *SWebConf) GetPort() int {
 	return s.Port
 }

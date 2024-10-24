@@ -6,20 +6,20 @@ log:
   stdout: true
 
 ##################################
-#mysql:
-#  default:
-#    service: default
-#    database: dem0
-#    addr: "127.0.0.1:3306"
-#    user: "user"
-#    password: "pwd"
-#    maxidleconns: 100
-#    maxopenconns: 300
-#    maxIdleTime: 300s
-#    connMaxLifeTime: 360s
-#    connTimeOut: 5s
-#    writeTimeOut: 5s
-#    readTimeOut: 5s
+mysql:
+  default:
+    service: default
+    database: dem0
+    addr: "127.0.0.1:3306"
+    user: "user"
+    password: "pwd"
+    maxidleconns: 100
+    maxopenconns: 300
+    maxIdleTime: 300s
+    connMaxLifeTime: 360s
+    connTimeOut: 5s
+    writeTimeOut: 5s
+    readTimeOut: 5s
 
 #redis:
 #  default:

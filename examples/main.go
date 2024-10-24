@@ -17,7 +17,7 @@ func main() {
 	// 6.初始化http服务路由
 	router.Http(engine)
 	// 5.框架启动
-	flow.Start(engine, conf.WebConf, func(engine *gin.Engine) (err error) {
+	flow.Start(engine, &conf.WebConf, func(engine *gin.Engine) (err error) {
 		flow.SetDefaultDBClient(helpers.MysqlClient)
 		flow.SetDefaultRedisClient(helpers.RedisClient)
 		return nil
