@@ -4,130 +4,19 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"crypto/tls"
-	"encoding/json"
-	"errors"
 	"fmt"
+	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/tiant-go/golib/pkg/util"
 	"github.com/tiant-go/golib/pkg/zlog"
 	"io"
 	"net"
 	"net/http"
-	"net/http/httptrace"
 	"net/url"
 	"strconv"
 	"sync"
 	"time"
-	"unsafe"
 )
-
-const (
-	EncodeJson    = "_json"
-	EncodeForm    = "_form"
-	EncodeRaw     = "_raw"
-	EncodeRawByte = "_raw_byte"
-)
-
-type HttpRequestOptions struct {
-	// 通用请求体，可通过Encode来对body做编码
-	RequestBody interface{}
-	// 请求头指定
-	Headers map[string]string
-	// cookie 设定
-	Cookies map[string]string
-	/*
-		httpGet / httPost 默认 application/x-www-form-urlencoded
-		httpPostJson 默认 application/json
-	*/
-	ContentType string
-	// 针对 RequestBody 的编码
-	Encode string
-	// 接口请求级timeout。不管retry是多少，那么每次执行的总时间都是timeout。
-	// 这个timeout与client.Timeout 没有直接关系，总执行超时时间取二者最小值。
-	Timeout time.Duration
-
-	// 重试策略，可不指定，默认使用`defaultRetryPolicy`(只有在`api.yaml`中指定retry>0 时生效)
-	RetryPolicy RetryPolicy `json:"-"`
-}
-
-func (o *HttpRequestOptions) getData() ([]byte, error) {
-
-	if o.RequestBody == nil {
-		return nil, nil
-	}
-
-	switch o.Encode {
-	case EncodeJson:
-		reqBody, err := json.Marshal(o.RequestBody)
-		return reqBody, err
-	case EncodeRaw:
-		var err error
-		encodeData, ok := o.RequestBody.(string)
-		if !ok {
-			err = errors.New("EncodeRaw need string type")
-		}
-		return *(*[]byte)(unsafe.Pointer(&encodeData)), err
-	case EncodeRawByte:
-		var err error
-		encodeData, ok := o.RequestBody.([]byte)
-		if !ok {
-			err = errors.New("EncodeRawByte need []byte type")
-		}
-		return encodeData, err
-	case EncodeForm:
-		fallthrough
-	default:
-		encodeData, err := o.getFormRequestData()
-		return *(*[]byte)(unsafe.Pointer(&encodeData)), err
-	}
-}
-func (o *HttpRequestOptions) getFormRequestData() (string, error) {
-	v := url.Values{}
-
-	if data, ok := o.RequestBody.(map[string]string); ok {
-		for key, value := range data {
-			v.Add(key, value)
-		}
-		return v.Encode(), nil
-	}
-
-	if data, ok := o.RequestBody.(map[string]interface{}); ok {
-		for key, value := range data {
-			var vStr string
-			switch value.(type) {
-			case string:
-				vStr = value.(string)
-			default:
-				if tmp, err := json.Marshal(value); err != nil {
-					return "", err
-				} else {
-					vStr = string(tmp)
-				}
-			}
-
-			v.Add(key, vStr)
-		}
-		return v.Encode(), nil
-	}
-
-	return "", errors.New("unSupport RequestBody type")
-}
-func (o *HttpRequestOptions) GetContentType() (cType string) {
-	if cType = o.ContentType; cType != "" {
-		return cType
-	}
-	// 根据 encode 获得一个默认的类型
-	switch o.Encode {
-	case EncodeJson:
-		cType = "application/json"
-
-	case EncodeForm:
-		fallthrough
-	default:
-		cType = "application/x-www-form-urlencoded"
-	}
-	return cType
-}
 
 const (
 	_defaultPrintRequestLen  = 10240
@@ -136,8 +25,6 @@ const (
 
 type HttpClientConf struct {
 	Service         string        `yaml:"service"`
-	AppKey          string        `yaml:"appkey"`
-	AppSecret       string        `yaml:"appsecret"`
 	Domain          string        `yaml:"domain"`
 	Timeout         time.Duration `yaml:"timeout"`
 	ConnectTimeout  time.Duration `yaml:"connectTimeout"`
@@ -244,9 +131,29 @@ func (client *HttpClientConf) HttpGet(ctx *gin.Context, path string, opts HttpRe
 		zlog.WarnLogger(ctx, "http client makeRequest error: "+err.Error())
 		return nil, err
 	}
-	t := client.beforeHttpStat(ctx, req)
 	body, err := client.httpDo(ctx, req, &opts, urlData)
-	client.afterHttpStat(ctx, req.URL.Scheme, t)
+	return &body, err
+}
+
+func (client *HttpClientConf) HttpDelete(ctx *gin.Context, path string, opts HttpRequestOptions) (*HttpResult, error) {
+	// http request
+	urlData, err := opts.getData()
+	if err != nil {
+		zlog.WarnLogger(ctx, "http client make data error: "+err.Error())
+		return nil, err
+	}
+	var u string
+	if urlData == nil {
+		u = fmt.Sprintf("%s%s", client.Domain, path)
+	} else {
+		u = fmt.Sprintf("%s%s?%s", client.Domain, path, urlData)
+	}
+	req, err := client.makeRequest(ctx, "DELETE", u, nil, opts)
+	if err != nil {
+		zlog.WarnLogger(ctx, "http client makeRequest error: "+err.Error())
+		return nil, err
+	}
+	body, err := client.httpDo(ctx, req, &opts, urlData)
 	return &body, err
 }
 
@@ -263,9 +170,7 @@ func (client *HttpClientConf) HttpPut(ctx *gin.Context, path string, opts HttpRe
 		zlog.WarnLogger(ctx, "http client makeRequest error: "+err.Error())
 		return nil, err
 	}
-	t := client.beforeHttpStat(ctx, req)
 	body, err := client.httpDo(ctx, req, &opts, urlData)
-	client.afterHttpStat(ctx, req.URL.Scheme, t)
 	return &body, err
 }
 
@@ -282,15 +187,12 @@ func (client *HttpClientConf) HttpPost(ctx *gin.Context, path string, opts HttpR
 		zlog.WarnLogger(ctx, "http client makeRequest error: "+err.Error())
 		return nil, err
 	}
-	// http分析
-	t := client.beforeHttpStat(ctx, req)
+
 	body, err := client.httpDo(ctx, req, &opts, urlData)
 	if err != nil {
 		zlog.Errorf(ctx, "ApiPostWithOpts failed, path:%s, err:%v", path, err.Error())
 		return nil, err
 	}
-	// http分析结束
-	client.afterHttpStat(ctx, req.URL.Scheme, t)
 	return &body, err
 }
 
@@ -307,15 +209,11 @@ func (client *HttpClientConf) HttpPostStream(ctx *gin.Context, path string, opts
 		zlog.WarnLogger(ctx, "http client makeRequest error: "+err.Error())
 		return err
 	}
-	// http分析
-	t := client.beforeHttpStat(ctx, req)
 	err = client.DoStream(ctx, req, &opts, urlData, f)
 	if err != nil {
 		zlog.Errorf(ctx, "ApiPostWithOpts failed, path:%s, err:%v", path, err.Error())
 		return err
 	}
-	// http分析结束
-	client.afterHttpStat(ctx, req.URL.Scheme, t)
 	return err
 }
 
@@ -346,6 +244,8 @@ func (client *HttpClientConf) GetRetryPolicy(opts *HttpRequestOptions) (retryPol
 }
 
 func (client *HttpClientConf) httpDo(ctx *gin.Context, req *http.Request, opts *HttpRequestOptions, urlData []byte) (res HttpResult, err error) {
+	t := beforeHttpStat(ctx, client, req)
+
 	timeout := 3 * time.Second
 	if opts != nil && opts.Timeout > 0 {
 		timeout = opts.Timeout
@@ -456,6 +356,7 @@ func (client *HttpClientConf) httpDo(ctx *gin.Context, req *http.Request, opts *
 		msg = err.Error()
 	}
 	zlog.InfoLogger(ctx, msg, fields...)
+	afterHttpStat(ctx, client, req.URL.Scheme, t)
 	return res, err
 }
 
@@ -482,27 +383,37 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 			}
 		}
 	})
-	c, _ := context.WithTimeout(context.Background(), timeout)
-	req = req.WithContext(c)
-
 	resp, doErr := client.HTTPClient.Do(req)
 	if doErr != nil {
 		return doErr
 	}
-	br := bufio.NewReader(resp.Body)
-	for {
-		out, err := br.ReadBytes('\n')
-		// 读取错误，直接返回错误
-		if err != nil && err != io.EOF {
-			return err
+
+	scanner := bufio.NewScanner(resp.Body)
+	scanner.Split(bufio.ScanLines)
+
+	ticker := time.NewTicker(timeout)
+	defer ticker.Stop()
+
+	stopChan := make(chan bool)
+	defer close(stopChan)
+	gopool.Go(func() {
+		for scanner.Scan() {
+			ticker.Reset(timeout)
+			data := scanner.Text()
+			errA := f([]byte(data))
+			if errA != nil {
+				zlog.Errorf(ctx, "handler post stream data error: %v", errA)
+				break
+			}
 		}
-		errA := f(out)
-		if errA != nil {
-			return errA
-		}
-		if err == io.EOF {
-			break
-		}
+		util.SafeSendBool(stopChan, true)
+	})
+	select {
+	case <-ticker.C:
+		// 超时处理逻辑
+		zlog.Errorf(ctx, "streaming timeout")
+	case <-stopChan:
+		// 正常结束
 	}
 	drainAndCloseBody(resp, 16384)
 	fields = append(fields,
@@ -547,88 +458,6 @@ func (client *HttpClientConf) formatLogMsg(requestParam, responseData []byte) (r
 	return req, resp
 }
 
-type timeTrace struct {
-	dnsStartTime,
-	dnsDoneTime,
-	connectStartTime,
-	connectDoneTime,
-	tlsHandshakeStartTime,
-	tlsHandshakeDoneTime,
-	getConnTime,
-	gotConnTime,
-	gotFirstRespTime,
-	finishTime time.Time
-}
-
-func (client *HttpClientConf) beforeHttpStat(ctx *gin.Context, req *http.Request) *timeTrace {
-	if client.HttpStat == false {
-		return nil
-	}
-
-	var t = &timeTrace{}
-	trace := &httptrace.ClientTrace{
-		// before get a connection
-		GetConn:  func(_ string) { t.getConnTime = time.Now() },
-		DNSStart: func(_ httptrace.DNSStartInfo) { t.dnsStartTime = time.Now() },
-		DNSDone:  func(_ httptrace.DNSDoneInfo) { t.dnsDoneTime = time.Now() },
-		// before a new connection
-		ConnectStart: func(_, _ string) { t.connectStartTime = time.Now() },
-		// after a new connection
-		ConnectDone: func(net, addr string, err error) { t.connectDoneTime = time.Now() },
-		// after get a connection
-		GotConn:              func(_ httptrace.GotConnInfo) { t.gotConnTime = time.Now() },
-		GotFirstResponseByte: func() { t.gotFirstRespTime = time.Now() },
-		TLSHandshakeStart:    func() { t.tlsHandshakeStartTime = time.Now() },
-		TLSHandshakeDone:     func(_ tls.ConnectionState, _ error) { t.tlsHandshakeDoneTime = time.Now() },
-	}
-	*req = *req.WithContext(httptrace.WithClientTrace(context.Background(), trace))
-	return t
-}
-
-func (client *HttpClientConf) afterHttpStat(ctx *gin.Context, scheme string, t *timeTrace) {
-	if client.HttpStat == false {
-		return
-	}
-	t.finishTime = time.Now() // after read body
-
-	cost := func(d time.Duration) float64 {
-		if d < 0 {
-			return -1
-		}
-		return float64(d.Nanoseconds()/1e4) / 100.0
-	}
-
-	serverProcessDuration := t.gotFirstRespTime.Sub(t.gotConnTime)
-	contentTransDuration := t.finishTime.Sub(t.gotFirstRespTime)
-	if t.gotConnTime.IsZero() {
-		// 没有拿到连接的情况
-		serverProcessDuration = 0
-		contentTransDuration = 0
-	}
-
-	switch scheme {
-	case "https":
-		f := []zlog.Field{
-			zlog.Float64("dnsLookupCost", cost(t.dnsDoneTime.Sub(t.dnsStartTime))),                       // dns lookup
-			zlog.Float64("tcpConnectCost", cost(t.connectDoneTime.Sub(t.connectStartTime))),              // tcp connection
-			zlog.Float64("tlsHandshakeCost", cost(t.tlsHandshakeStartTime.Sub(t.tlsHandshakeStartTime))), // tls handshake
-			zlog.Float64("serverProcessCost", cost(serverProcessDuration)),                               // server processing
-			zlog.Float64("contentTransferCost", cost(contentTransDuration)),                              // content transfer
-			zlog.Float64("totalCost", cost(t.finishTime.Sub(t.getConnTime))),                             // total cost
-		}
-		zlog.InfoLogger(ctx, "time trace", f...)
-	case "http":
-		f := []zlog.Field{
-			zlog.Float64("dnsLookupCost", cost(t.dnsDoneTime.Sub(t.dnsStartTime))),          // dns lookup
-			zlog.Float64("tcpConnectCost", cost(t.connectDoneTime.Sub(t.connectStartTime))), // tcp connection
-			zlog.Float64("serverProcessCost", cost(serverProcessDuration)),                  // server processing
-			zlog.Float64("contentTransferCost", cost(contentTransDuration)),                 // content transfer
-			zlog.Float64("totalCost", cost(t.finishTime.Sub(t.getConnTime))),                // total cost
-		}
-		zlog.InfoLogger(ctx, "time trace", f...)
-	}
-}
-
 func drainAndCloseBody(resp *http.Response, maxBytes int64) {
 	if resp != nil {
 		_, _ = io.CopyN(io.Discard, resp.Body, maxBytes)
@@ -642,11 +471,4 @@ type RetryPolicy func(resp *http.Response, err error) bool
 // 默认重试策略，仅当底层返回error时重试。不解析http包
 var defaultRetryPolicy = func(resp *http.Response, err error) bool {
 	return err != nil
-}
-
-type TransportOption struct {
-	MaxIdleConns        int
-	MaxIdleConnsPerHost int
-	IdleConnTimeout     time.Duration
-	CustomTransport     *http.Transport
 }

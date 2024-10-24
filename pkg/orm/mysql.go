@@ -6,7 +6,6 @@ import (
 	"github.com/pkg/errors"
 	"github.com/tiant-go/golib/pkg/zlog"
 	ormUtil "gorm.io/gorm/utils"
-	"gorm.io/plugin/dbresolver"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -61,7 +60,6 @@ func NormalPaginate(page *NormalPage) func(db *gorm.DB) *gorm.DB {
 type MysqlConf struct {
 	DataBase        string        `yaml:"database"`
 	Addr            string        `yaml:"addr"`
-	SlaveAddrs      []string      `yaml:"slaveAddrs"`
 	User            string        `yaml:"user"`
 	Password        string        `yaml:"password"`
 	Charset         string        `yaml:"charset"`
@@ -72,9 +70,6 @@ type MysqlConf struct {
 	ConnTimeOut     time.Duration `yaml:"connTimeOut"`
 	WriteTimeOut    time.Duration `yaml:"writeTimeOut"`
 	ReadTimeOut     time.Duration `yaml:"readTimeOut"`
-
-	// sql 字段最大长度
-	MaxSqlLen int `yaml:"maxSqlLen"`
 }
 
 func (conf *MysqlConf) checkConf() {
@@ -99,11 +94,7 @@ func (conf *MysqlConf) checkConf() {
 	if conf.ReadTimeOut == 0 {
 		conf.ReadTimeOut = 1200 * time.Millisecond
 	}
-	if conf.MaxSqlLen == 0 {
-		// 日志中sql字段长度：
-		// 如果不指定使用默认2048；如果<0表示不展示sql语句；否则使用用户指定的长度，过长会被截断
-		conf.MaxSqlLen = 2048
-	}
+
 }
 
 func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
@@ -117,17 +108,6 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 		conf.ReadTimeOut,
 		conf.WriteTimeOut)
 	dsnArr := []string{}
-	for _, s := range conf.SlaveAddrs {
-		dsn2 := fmt.Sprintf("%s:%s@tcp(%s)/%s?timeout=%s&readTimeout=%s&writeTimeout=%s&parseTime=True&loc=Asia%%2FShanghai",
-			conf.User,
-			conf.Password,
-			s,
-			conf.DataBase,
-			conf.ConnTimeOut,
-			conf.ReadTimeOut,
-			conf.WriteTimeOut)
-		dsnArr = append(dsnArr, dsn2)
-	}
 	dsnArr = append(dsnArr, dsn)
 	if conf.Charset != "" {
 		dsn = dsn + "&charset=" + conf.Charset
@@ -145,20 +125,7 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	if err != nil {
 		return client, err
 	}
-	var p []gorm.Dialector
-	for _, s := range dsnArr {
-		p = append(p, mysql.Open(s))
-	}
-	err = client.Use(dbresolver.Register(dbresolver.Config{
-		// `db2` 作为 sources，`db3`、`db4` 作为 replicas
-		Sources:  []gorm.Dialector{mysql.Open(dsn)},
-		Replicas: p,
-		// sources/replicas 负载均衡策略
-		Policy: dbresolver.RandomPolicy{},
-	}))
-	if err != nil {
-		return nil, err
-	}
+
 	sqlDB, err := client.DB()
 	if err != nil {
 		return client, err
