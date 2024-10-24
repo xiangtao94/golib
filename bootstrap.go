@@ -9,7 +9,10 @@ import (
 )
 
 // 全局注册一下
-func Bootstraps(engine *gin.Engine, conf conf.IBootstrapConf) {
+func Bootstraps(engine *gin.Engine, conf conf.IBootstrapConf) *gin.Engine {
+	if engine == nil {
+		engine = gin.New()
+	}
 	// appName设置
 	env.SetAppName(conf.GetAppName())
 	// zlog日志初始化
@@ -20,4 +23,5 @@ func Bootstraps(engine *gin.Engine, conf conf.IBootstrapConf) {
 	engine.Use(middleware.AccessLog(conf.GetAccessLogConf()))
 	// 异常Recovery中间键
 	engine.Use(middleware.Recovery(conf.GetHandleRecoveryFunc()))
+	return engine
 }

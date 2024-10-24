@@ -29,7 +29,7 @@ func Init() {
 		conf.InitConf()
 		// 初始化zlog日志
 		zlog.InitLog(conf.WebConf.AppName, conf.WebConf.Log)
-		helpers.Init()
+		helpers.InitResource()
 		Ctx, _ = gin.CreateTestContext(httptest.NewRecorder())
 		golib.Bootstraps(engine, conf.WebConf)
 		flow.SetDefaultDBClient(helpers.MysqlClient)

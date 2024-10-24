@@ -20,7 +20,7 @@ type SWebConf struct {
 	AccessConf middleware.AccessLoggerConfig
 }
 
-var WebConf SWebConf
+var WebConf *SWebConf
 
 func InitConf() {
 	// load from yaml

@@ -3,7 +3,6 @@ package flow
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib"
 	"github.com/tiant-go/golib/pkg/conf"
 	"strings"
 
@@ -13,7 +12,6 @@ import (
 type StartBeforeFunc func(engine *gin.Engine) (err error)
 
 func Start(engine *gin.Engine, conf conf.IBootstrapConf, startBefore StartBeforeFunc) {
-	golib.Bootstraps(engine, conf)
 	err := startBefore(engine)
 	if err != nil {
 		panic(err.Error())
