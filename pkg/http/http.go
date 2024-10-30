@@ -196,7 +196,7 @@ func (client *HttpClientConf) HttpPost(ctx *gin.Context, path string, opts HttpR
 	return &body, err
 }
 
-func (client *HttpClientConf) HttpPostStream(ctx *gin.Context, path string, opts HttpRequestOptions, f func([]byte) error) (err error) {
+func (client *HttpClientConf) HttpPostStream(ctx *gin.Context, path string, opts HttpRequestOptions, f func(data string) error) (err error) {
 	// http request
 	urlData, err := opts.getData()
 	if err != nil {
@@ -360,7 +360,7 @@ func (client *HttpClientConf) httpDo(ctx *gin.Context, req *http.Request, opts *
 	return res, err
 }
 
-func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts *HttpRequestOptions, urlData []byte, f func([]byte) error) (err error) {
+func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts *HttpRequestOptions, urlData []byte, f func(data string) error) (err error) {
 	timeout := 3 * time.Second
 	if opts != nil && opts.Timeout > 0 {
 		timeout = opts.Timeout
@@ -400,7 +400,7 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 		for scanner.Scan() {
 			ticker.Reset(timeout)
 			data := scanner.Text()
-			errA := f([]byte(data))
+			errA := f(data)
 			if errA != nil {
 				zlog.Errorf(ctx, "handler post stream data error: %v", errA)
 				break
