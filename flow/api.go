@@ -2,14 +2,15 @@ package flow
 
 import (
 	"encoding/json"
+	jsoniter "github.com/json-iterator/go"
 	"github.com/tiant-go/golib/pkg/errors"
 	"github.com/tiant-go/golib/pkg/http"
 )
 
 type Res struct {
-	Code    int    `json:"code"`
-	Message string `json:"message"`
-	Data    []byte `json:"data"`
+	Code    int                 `json:"code"`
+	Message string              `json:"message"`
+	Data    jsoniter.RawMessage `json:"data"`
 }
 
 type ApiRes struct {
@@ -90,7 +91,7 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions)
 func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
 	httpRes := Res{}
 	if len(res.Response) > 0 {
-		e := json.Unmarshal(res.Response, &httpRes)
+		e := jsoniter.Unmarshal(res.Response, &httpRes)
 		if e != nil {
 			// 限制一下错误日志打印的长度，2k
 			data := res.Response
