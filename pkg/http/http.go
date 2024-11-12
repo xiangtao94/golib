@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	"github.com/tiant-go/golib/pkg/util"
 	"github.com/tiant-go/golib/pkg/zlog"
 	"io"
@@ -387,7 +388,9 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 	if doErr != nil {
 		return doErr
 	}
-
+	if resp.StatusCode != http.StatusOK {
+		return errors.New(resp.Status)
+	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Split(bufio.ScanLines)
 
