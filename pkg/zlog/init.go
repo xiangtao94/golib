@@ -2,7 +2,7 @@ package zlog
 
 import (
 	"fmt"
-	"github.com/tiant-go/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/env"
 	"go.uber.org/zap/buffer"
 	"os"
 	"time"

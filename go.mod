@@ -1,4 +1,4 @@
-module github.com/tiant-go/golib
+module github.com/xiangtao94/golib
 
 go 1.22
 

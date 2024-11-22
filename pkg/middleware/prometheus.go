@@ -6,7 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"time"
 )

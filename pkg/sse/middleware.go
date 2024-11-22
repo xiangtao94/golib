@@ -2,7 +2,7 @@ package sse
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 func UploadEventStream(ctx *gin.Context) {

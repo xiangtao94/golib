@@ -3,8 +3,8 @@ package flow
 import (
 	"encoding/json"
 	jsoniter "github.com/json-iterator/go"
-	"github.com/tiant-go/golib/pkg/errors"
-	"github.com/tiant-go/golib/pkg/http"
+	"github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/http"
 )
 
 type Res struct {

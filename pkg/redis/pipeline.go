@@ -2,7 +2,7 @@ package redis
 
 import (
 	"errors"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/zlog"
 	"time"
 
 	"github.com/gin-gonic/gin"

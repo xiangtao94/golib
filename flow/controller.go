@@ -2,7 +2,7 @@ package flow
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/errors"
 	"net/http"
 	"reflect"
 )

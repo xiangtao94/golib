@@ -4,7 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"net/http/httptrace"
 	"time"

@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
-	http2 "github.com/tiant-go/golib/flow"
-	"github.com/tiant-go/golib/pkg/errors"
+	http2 "github.com/xiangtao94/golib/flow"
+	"github.com/xiangtao94/golib/pkg/errors"
 	"net/http"
 )
 

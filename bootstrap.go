@@ -2,10 +2,10 @@ package golib
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/conf"
-	"github.com/tiant-go/golib/pkg/env"
-	"github.com/tiant-go/golib/pkg/middleware"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/conf"
+	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/middleware"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 // 全局注册一下

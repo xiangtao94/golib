@@ -2,8 +2,8 @@ package conf
 
 import (
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/middleware"
-	"github.com/tiant-go/golib/pkg/zlog"
+	"github.com/xiangtao94/golib/pkg/middleware"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 type IBootstrapConf interface {

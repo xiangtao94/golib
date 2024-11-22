@@ -3,10 +3,10 @@ package flow
 import (
 	"fmt"
 	"github.com/gin-gonic/gin"
-	"github.com/tiant-go/golib/pkg/conf"
+	"github.com/xiangtao94/golib/pkg/conf"
 	"strings"
 
-	"github.com/tiant-go/golib/pkg/server"
+	"github.com/xiangtao94/golib/pkg/server"
 )
 
 type StartBeforeFunc func(engine *gin.Engine) (err error)

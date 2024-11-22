@@ -3,8 +3,8 @@ package rmq
 
 import (
 	"fmt"
-	"github.com/tiant-go/golib/pkg/env"
-	"github.com/tiant-go/golib/pkg/rmq/auth"
+	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/rmq/auth"
 	"sync"
 	"time"
 
