@@ -9,6 +9,16 @@ import (
 	"net/http"
 )
 
+func RenderStream(ctx *gin.Context, id, event, str string) {
+	flusher, _ := ctx.Writer.(http.Flusher)
+	sse.Encode(ctx.Writer, sse.Event{
+		Id:    id,
+		Event: event,
+		Data:  str,
+	})
+	flusher.Flush()
+}
+
 func RenderStreamData(ctx *gin.Context, data interface{}) {
 	flusher, _ := ctx.Writer.(http.Flusher)
 	sse.Encode(ctx.Writer, sse.Event{
