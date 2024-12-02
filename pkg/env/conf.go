@@ -10,10 +10,12 @@ import (
 func LoadConf(filename, subConf string, s interface{}) {
 	var path string
 	path = filepath.Join(GetConfDirPath(), subConf, filename)
-
-	if yamlFile, err := os.ReadFile(path); err != nil {
+	yamlFile, err := os.ReadFile(path)
+	if err != nil {
 		panic(filename + " get error: " + err.Error())
-	} else if err = yaml.Unmarshal(yamlFile, s); err != nil {
+	}
+	yamlConf := []byte(os.ExpandEnv(string(yamlFile)))
+	if err = yaml.Unmarshal(yamlConf, s); err != nil {
 		panic(filename + " unmarshal error: " + err.Error())
 	}
 }
