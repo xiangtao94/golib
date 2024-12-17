@@ -154,10 +154,15 @@ func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Respo
 		zlog.String("method", request.Method),
 		zlog.String("query", request.URL.RawQuery),
 	)
-	reqBody, _ := io.ReadAll(request.Body)
-	defer request.Body.Close()
-	respBody, _ := io.ReadAll(response.Body)
-	defer response.Body.Close()
+	var reqBody, respBody []byte
+	if request.Body != nil {
+		reqBody, _ = io.ReadAll(request.Body)
+		defer request.Body.Close()
+	}
+	if response.Body != nil {
+		respBody, _ = io.ReadAll(response.Body)
+		defer response.Body.Close()
+	}
 	requestData, respData := formatLogMsg(request.Context(), reqBody, respBody)
 	fields = append(fields, zlog.String("requestParam", string(requestData)))
 	fields = append(fields, zlog.Int("responseStatus", response.StatusCode))
