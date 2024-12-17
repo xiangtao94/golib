@@ -12,9 +12,12 @@ import (
 type StartBeforeFunc func(engine *gin.Engine) (err error)
 
 func Start(engine *gin.Engine, conf conf.IBootstrapConf, startBefore StartBeforeFunc) {
-	err := startBefore(engine)
-	if err != nil {
-		panic(err.Error())
+	var err error
+	if startBefore != nil {
+		err = startBefore(engine)
+		if err != nil {
+			panic(err.Error())
+		}
 	}
 	// 服务启动
 	if err = server.Run(engine, fmt.Sprintf(":%v", conf.GetPort())); err != nil {
