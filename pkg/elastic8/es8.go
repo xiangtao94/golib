@@ -2,6 +2,9 @@ package elastic8
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"github.com/elastic/go-elasticsearch/v8"
 	"github.com/elastic/go-elasticsearch/v8/typedapi/core/search"
@@ -104,7 +107,21 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx *gin.Context, indexName string
 	ec.appendContext(ctx)
 	bulk := ec.Client.Bulk().Index(indexName)
 	for _, doc := range docs {
-		err = bulk.CreateOp(types.CreateOperation{Index_: &indexName}, doc)
+		// 获取当前时间戳（秒级）
+		timestamp := time.Now().UnixMicro()
+		// 将文档和时间戳合并
+		docBytes, err := json.Marshal(doc)
+		if err != nil {
+			fmt.Println("Error marshalling document:", err)
+			return
+		}
+		// 将时间戳与文档内容连接
+		combined := append(docBytes, []byte(fmt.Sprintf("%d", timestamp))...)
+		// 生成SHA256哈希
+		hash := sha256.Sum256(combined)
+		// Base64编码哈希值
+		uniqueID := base64.StdEncoding.EncodeToString(hash[:])
+		err = bulk.CreateOp(types.CreateOperation{Index_: &indexName, Id_: &uniqueID}, doc)
 		if err != nil {
 			return err
 		}
