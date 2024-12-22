@@ -113,7 +113,7 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx *gin.Context, indexName string
 		docBytes, err := json.Marshal(doc)
 		if err != nil {
 			fmt.Println("Error marshalling document:", err)
-			return
+			return err
 		}
 		// 将时间戳与文档内容连接
 		combined := append(docBytes, []byte(fmt.Sprintf("%d", timestamp))...)
