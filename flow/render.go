@@ -61,7 +61,7 @@ func RenderJsonSucc(ctx *gin.Context, data interface{}) {
 func RenderJsonFail(ctx *gin.Context, err error) {
 	r := newJsonRender()
 
-	code, msg := -1, errors.Cause(err).Error()
+	code, msg := 500, errors.Cause(err).Error()
 	switch errors.Cause(err).(type) {
 	case errors2.Error:
 		code = errors.Cause(err).(errors2.Error).Code

@@ -1,4 +1,4 @@
-package elastic8
+package elasticsearch
 
 import (
 	"context"

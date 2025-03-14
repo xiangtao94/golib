@@ -106,6 +106,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		commonFields := []zlog.Field{
 			zlog.String("method", c.Request.Method),
 			zlog.String("clientIp", c.ClientIP()),
+			zlog.String("requestHeader", getHeader(c)),
 			zlog.String("requestParam", reqParam),
 			zlog.Int("responseStatus", c.Writer.Status()),
 			zlog.String("response", response),
@@ -118,7 +119,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		// 新的notice添加方式
 		customerFields := zlog.GetCustomerFields(c)
 		commonFields = append(commonFields, customerFields...)
-		zlog.InfoLogger(c, "access", commonFields...)
+		zlog.InfoLogger(c, "", commonFields...)
 	}
 }
 
@@ -162,6 +163,13 @@ func getCookie(ctx *gin.Context) string {
 	cStr := ""
 	for _, c := range ctx.Request.Cookies() {
 		cStr += fmt.Sprintf("%s=%s&", c.Name, c.Value)
+	}
+	return strings.TrimRight(cStr, "&")
+}
+func getHeader(ctx *gin.Context) string {
+	cStr := ""
+	for k, v := range ctx.Request.Header {
+		cStr += fmt.Sprintf("%s=%s&", k, v)
 	}
 	return strings.TrimRight(cStr, "&")
 }

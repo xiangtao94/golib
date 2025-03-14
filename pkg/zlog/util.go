@@ -103,7 +103,7 @@ func noLog(ctx *gin.Context) bool {
 }
 
 func GetFormatRequestTime(time time.Time) string {
-	return fmt.Sprintf("%d", time.UnixMilli())
+	return time.Format("2006-01-02 15:04:05.000")
 }
 
 func GetRequestCost(start, end time.Time) float64 {
@@ -138,6 +138,6 @@ func AppendCostTime(begin, end time.Time) []Field {
 	return []Field{
 		String("startTime", GetFormatRequestTime(begin)),
 		String("endTime", GetFormatRequestTime(end)),
-		Float64("cost", GetRequestCost(begin, end)),
+		String("cost", fmt.Sprintf("%v%s", GetRequestCost(begin, end), "ms")),
 	}
 }

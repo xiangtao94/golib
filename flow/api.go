@@ -1,22 +1,16 @@
 package flow
 
 import (
-	"encoding/json"
 	jsoniter "github.com/json-iterator/go"
 	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/http"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-type Res struct {
+type ApiRes struct {
 	Code    int                 `json:"code"`
 	Message string              `json:"message"`
 	Data    jsoniter.RawMessage `json:"data"`
-}
-
-type ApiRes struct {
-	Code    int
-	Message string
-	Data    []byte
 }
 
 type IApi interface {
@@ -63,7 +57,7 @@ func (entity *Api) ApiGetWithOpts(path string, reqOpts http.HttpRequestOptions) 
 	//GET请求写死为form
 	reqOpts.Encode = http.EncodeForm
 	if entity.Client == nil {
-		entity.LogErrorf("ApiGetWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(entity.GetCtx(), "ApiGetWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	res, e := entity.Client.HttpGet(entity.GetCtx(), path, reqOpts)
@@ -75,7 +69,7 @@ func (entity *Api) ApiGetWithOpts(path string, reqOpts http.HttpRequestOptions) 
 
 func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
-		entity.LogErrorf("ApiPostWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(entity.GetCtx(), "ApiPostWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	if reqOpts.Encode == "" {
@@ -89,9 +83,9 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions)
 }
 
 func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
-	httpRes := Res{}
+	apiRes := &ApiRes{}
 	if len(res.Response) > 0 {
-		e := jsoniter.Unmarshal(res.Response, &httpRes)
+		e := jsoniter.Unmarshal(res.Response, &apiRes)
 		if e != nil {
 			// 限制一下错误日志打印的长度，2k
 			data := res.Response
@@ -99,23 +93,14 @@ func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
 				data = data[0:2000]
 			}
 			// 返回数据json unmarshal失败，打印错误日志
-			entity.LogErrorf("http response json unmarshal failed, path:%s, response:%s, err:%s", path, string(data), e)
+			zlog.Errorf(entity.GetCtx(), "http response json unmarshal failed, path:%s, response:%s, err:%s", path, string(data), e)
 			return nil, e
 		}
-	}
-	apiRes := &ApiRes{
-		Code:    httpRes.Code,
-		Message: httpRes.Message,
-		Data:    httpRes.Data,
 	}
 	return apiRes, nil
 }
 
 func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error) error {
-	if err != nil {
-		return err
-	}
-
 	if data.Code != 200 {
 		return errors.Error{
 			Code:    data.Code,
@@ -124,8 +109,8 @@ func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error
 	}
 	if len(data.Data) > 0 {
 		// 解析数据
-		if err = json.Unmarshal(data.Data, outPut); err != nil {
-			entity.LogErrorf("api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())
+		if err = jsoniter.Unmarshal(data.Data, outPut); err != nil {
+			zlog.Errorf(entity.GetCtx(), "api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())
 			return errors.ErrorSystemError
 		}
 

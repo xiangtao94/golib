@@ -3,6 +3,7 @@ package flow
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"reflect"
 )
@@ -56,14 +57,14 @@ func Use[T any](controller IController[*T]) func(ctx *gin.Context) {
 		if len(ctx.ContentType()) == 0 && ctx.Request.Method == http.MethodPost { // post默认application/json
 			err := ctx.BindJSON(&newReq)
 			if err != nil {
-				newCTL.LogWarnf("Controller %T param bind error, err:%+v", newCTL, err)
+				zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
 				newCTL.RenderJsonFail(errors.ErrorParamInvalid)
 				return
 			}
 		} else {
 			err := ctx.ShouldBind(&newReq)
 			if err != nil {
-				newCTL.LogWarnf("Controller %T param bind error, err:%+v", newCTL, err)
+				zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
 				newCTL.RenderJsonFail(errors.ErrorParamInvalid)
 				return
 			}
@@ -71,7 +72,7 @@ func Use[T any](controller IController[*T]) func(ctx *gin.Context) {
 		// action execute
 		data, err := newCTL.Action(&newReq)
 		if err != nil {
-			newCTL.LogWarnf("Controller %T call action logic error, err:%+v", newCTL, err)
+			zlog.Errorf(newCTL.GetCtx(), "Controller %T call action logic error, err:%+v", newCTL, err)
 			newCTL.RenderJsonFail(err)
 			return
 		}

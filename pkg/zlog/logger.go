@@ -73,7 +73,7 @@ func newLogger() *zap.Logger {
 		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
 	})
 
-	name := env.AppName
+	name := logConfig.ModuleName
 	if name == "" {
 		name = "server"
 	}

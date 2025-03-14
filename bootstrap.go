@@ -10,9 +10,6 @@ import (
 
 // 全局注册一下
 func Bootstraps(engine *gin.Engine, conf conf.IBootstrapConf) *gin.Engine {
-	if engine == nil {
-		engine = gin.New()
-	}
 	// appName设置
 	env.SetAppName(conf.GetAppName())
 	// zlog日志初始化

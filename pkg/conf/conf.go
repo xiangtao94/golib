@@ -11,7 +11,7 @@ type IBootstrapConf interface {
 	GetAppName() string
 	// app启动端口
 	GetPort() int
-	// 通用配置
+	// 通用日志配置
 	GetZlogConf() zlog.LogConfig
 	// accessLog配置
 	GetAccessLogConf() middleware.AccessLoggerConfig

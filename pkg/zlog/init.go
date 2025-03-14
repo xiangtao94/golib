@@ -81,10 +81,10 @@ var logConfig = struct {
 	ZapLevel zapcore.Level
 
 	// 以下变量仅对开发环境生效
-	Stdout   bool
-	Log2File bool
-	Path     string
-
+	Stdout     bool
+	Log2File   bool
+	Path       string
+	ModuleName string
 	// 缓冲区
 	BufferSwitch        bool
 	BufferSize          int
@@ -92,9 +92,10 @@ var logConfig = struct {
 }{
 	ZapLevel: zapcore.InfoLevel,
 
-	Stdout:   false,
-	Log2File: true,
-	Path:     "./log",
+	Stdout:     false,
+	Log2File:   true,
+	Path:       "./log",
+	ModuleName: "xt-demo",
 
 	// 缓冲区，如果不配置默认使用以下配置
 	BufferSwitch:        true,
@@ -107,7 +108,7 @@ func InitLog(moduleName string, conf LogConfig) *zap.SugaredLogger {
 	if err := RegisterJSONEncoder(moduleName); err != nil {
 		println("RegisterJSONEncoder: " + err.Error())
 	}
-
+	logConfig.ModuleName = moduleName
 	// 全局日志级别
 	conf.SetLogLevel()
 	// 日志缓冲区设置
