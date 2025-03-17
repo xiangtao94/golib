@@ -19,6 +19,7 @@ type Render interface {
 	SetReturnCode(int)
 	SetReturnMsg(string)
 	SetReturnData(interface{})
+	SetReturnRequestId(string)
 	GetReturnCode() int
 	GetReturnMsg() string
 }
@@ -41,7 +42,7 @@ func RenderJson(ctx *gin.Context, code int, msg string, data interface{}) {
 	r.SetReturnCode(code)
 	r.SetReturnMsg(msg)
 	r.SetReturnData(data)
-
+	r.SetReturnRequestId(zlog.GetRequestID(ctx))
 	setCommonHeader(ctx, code, msg)
 	ctx.JSON(http.StatusOK, r)
 	return
@@ -50,9 +51,9 @@ func RenderJson(ctx *gin.Context, code int, msg string, data interface{}) {
 func RenderJsonSucc(ctx *gin.Context, data interface{}) {
 	r := newJsonRender()
 	r.SetReturnCode(200)
-	r.SetReturnMsg("success")
+	r.SetReturnMsg("Success")
 	r.SetReturnData(data)
-
+	r.SetReturnRequestId(zlog.GetRequestID(ctx))
 	setCommonHeader(ctx, 200, "success")
 	ctx.JSON(http.StatusOK, r)
 	return
@@ -88,9 +89,14 @@ var defaultNew = func() Render {
 }
 
 type DefaultRender struct {
-	Code    int         `json:"code"`
-	Message string      `json:"message"`
-	Data    interface{} `json:"data"`
+	Code      int         `json:"code"`
+	Message   string      `json:"message"`
+	RequestId string      `json:"request_id,omitempty"`
+	Data      interface{} `json:"data"`
+}
+
+func (r *DefaultRender) SetReturnRequestId(requestId string) {
+	r.RequestId = requestId
 }
 
 func (r *DefaultRender) GetReturnCode() int {
