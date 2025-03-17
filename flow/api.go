@@ -8,9 +8,10 @@ import (
 )
 
 type ApiRes struct {
-	Code    int                 `json:"code"`
-	Message string              `json:"message"`
-	Data    jsoniter.RawMessage `json:"data"`
+	Code      int                 `json:"code"`
+	Message   string              `json:"message"`
+	RequestId string              `json:"request_id"`
+	Data      jsoniter.RawMessage `json:"data"`
 }
 
 type IApi interface {
