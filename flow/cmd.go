@@ -41,9 +41,11 @@ func Main(engine *gin.Engine, preFunc func(engine *gin.Engine), postFunc func(en
 	engine.Use(middleware.Recovery(conf.GetHandleRecoveryFunc()))
 	// 启动前置处理
 	preFunc(engine)
-	log.Println(syscall.Getpid(), "server run", addr)
 	// 6.启动
 	appServer := endless.NewServer(addr, engine)
+	appServer.BeforeBegin = func(add string) {
+		log.Println(syscall.Getpid(), "server run", addr)
+	}
 	// 服务启动
 	if err := appServer.ListenAndServe(); err != nil {
 		if strings.HasSuffix(err.Error(), "use of closed network connection") {
