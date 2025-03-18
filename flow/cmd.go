@@ -7,17 +7,27 @@
 package flow
 
 import (
+	"fmt"
+	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
-	"github.com/xiangtao94/golib/pkg/server"
 	"github.com/xiangtao94/golib/pkg/zlog"
+	"log"
+	"strings"
+	"syscall"
 )
 
 func Main(engine *gin.Engine, preFunc func(engine *gin.Engine), postFunc func(engine *gin.Engine)) {
+	defer postFunc(engine)
+
 	conf := GetConf()
 	if conf == nil {
 		panic("need init config: flow.SetDefaultConf() do something?")
+	}
+	addr := fmt.Sprintf(":%v", conf.GetPort())
+	if strings.Trim(addr, " ") == "" {
+		addr = ":8080"
 	}
 	// appName设置
 	env.SetAppName(conf.GetAppName())
@@ -29,8 +39,16 @@ func Main(engine *gin.Engine, preFunc func(engine *gin.Engine), postFunc func(en
 	engine.Use(middleware.AccessLog(conf.GetAccessLogConf()))
 	// 异常Recovery中间键
 	engine.Use(middleware.Recovery(conf.GetHandleRecoveryFunc()))
-	// 前置处理
+	// 启动前置处理
 	preFunc(engine)
+	log.Println(syscall.Getpid(), "server run", addr)
 	// 6.启动
-	server.Start(engine, conf.GetPort(), postFunc)
+	appServer := endless.NewServer(addr, engine)
+	// 服务启动
+	if err := appServer.ListenAndServe(); err != nil {
+		if strings.HasSuffix(err.Error(), "use of closed network connection") {
+			return
+		}
+		panic(err.Error())
+	}
 }
