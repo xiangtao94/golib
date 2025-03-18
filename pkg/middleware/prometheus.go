@@ -6,6 +6,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"time"
@@ -49,12 +50,12 @@ var (
 	)
 )
 
-func RegistryMetrics(engine *gin.Engine, appName string) {
+func RegistryMetrics(engine *gin.Engine) {
 	runtimeMetricsRegister := prometheus.NewRegistry()
 	runtimeMetricsRegister.MustRegister(collectors.NewGoCollector())
 	runtimeMetricsRegister.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	runtimeMetricsRegister.MustRegister(reqCount, reqDuration, reqSizeBytes, respSizeBytes)
-	engine.Use(PromMiddleware(appName))
+	engine.Use(PromMiddleware(env.AppName))
 	engine.GET("/metrics", func(ctx *gin.Context) {
 		// 避免metrics打点输出过多无用日志
 		zlog.SetNoLogFlag(ctx)

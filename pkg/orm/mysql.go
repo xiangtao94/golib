@@ -147,7 +147,7 @@ type ormLogger struct {
 
 func newLogger() *ormLogger {
 	return &ormLogger{
-		logger: zlog.ZapLogger.WithOptions(zlog.AddCallerSkip(2)),
+		logger: zlog.GetZapLogger(),
 	}
 }
 

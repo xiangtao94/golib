@@ -10,11 +10,8 @@ GitHub: [https://github.com/xiangtao94/golib](https://github.com/xiangtao94/goli
 
 该库提供了一系列常用组件和工具，适用于 Go 语言项目开发：
 
-### 1. **配置管理 (`conf`)**
-- 提供统一的配置加载与管理，支持 JSON、YAML 等格式。
-
-### 2. **Elasticsearch 支持 (`elastic7`, `elastic8`)**
-- 封装了对 Elasticsearch 7.x 和 8.x 版本的支持，简化索引、搜索等操作。
+### 2. **Elasticsearch 支持 (`elastic8`)**
+- 封装了对 Elasticsearch 8.x 版本的支持，简化索引、搜索等操作。
 
 ### 3. **环境管理 (`env`)**
 - 统一管理环境变量，支持开发、测试、生产等多种环境配置。
@@ -68,7 +65,6 @@ GitHub: [https://github.com/xiangtao94/golib](https://github.com/xiangtao94/goli
 golib/
 ├── flow/              # 封装的面向对象的业务框架，简化开发逻辑
 ├── pkg/
-│   ├── conf/          # 配置管理
 │   ├── elastic7/      # Elasticsearch 7.x 支持
 │   ├── elastic8/      # Elasticsearch 8.x 支持
 │   ├── env/           # 环境管理

@@ -23,8 +23,10 @@ const (
 	EXPIRE_TIME_1_WEEK    = 604800
 )
 
-// 默认db
-var DefaultRedisClient *redis.Redis
+var (
+	// 默认redis
+	DefaultRedisClient *redis.Redis
+)
 
 type IRedis interface {
 	ILayer

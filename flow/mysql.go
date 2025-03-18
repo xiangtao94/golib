@@ -5,11 +5,12 @@ import (
 	"gorm.io/gorm"
 )
 
-// 默认db
-var DefaultDBClient *gorm.DB
-
-// 可选的db集合
-var NamedDBClient map[string]*gorm.DB
+var (
+	// 默认db
+	DefaultDBClient *gorm.DB
+	// 可选的db集合
+	NamedDBClient map[string]*gorm.DB
+)
 
 type IDao interface {
 	ILayer

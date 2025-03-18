@@ -17,7 +17,7 @@ var (
 	// 是否docker运行
 	isDocker bool
 	// 项目AppName
-	AppName string
+	AppName = "demo"
 )
 
 func init() {

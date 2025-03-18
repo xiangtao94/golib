@@ -103,12 +103,12 @@ var logConfig = struct {
 	BufferFlushInterval: 5 * time.Second,
 }
 
-func InitLog(moduleName string, conf LogConfig) *zap.SugaredLogger {
+func InitLog(conf LogConfig) *zap.SugaredLogger {
 	// 定制日志格式
-	if err := RegisterJSONEncoder(moduleName); err != nil {
+	if err := RegisterJSONEncoder(env.AppName); err != nil {
 		println("RegisterJSONEncoder: " + err.Error())
 	}
-	logConfig.ModuleName = moduleName
+	logConfig.ModuleName = env.AppName
 	// 全局日志级别
 	conf.SetLogLevel()
 	// 日志缓冲区设置

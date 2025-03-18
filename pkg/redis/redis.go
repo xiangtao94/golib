@@ -94,7 +94,7 @@ func InitRedisClient(conf RedisConf) (*Redis, error) {
 	}
 	c := &Redis{
 		pool:   p,
-		logger: zlog.ZapLogger.WithOptions(zlog.AddCallerSkip(1)),
+		logger: newLogger().logger,
 		ctx:    context.Background(),
 	}
 	return c, nil
@@ -170,4 +170,14 @@ func (r *Redis) Stats() (inUseCount, idleCount, activeCount int) {
 	activeCount = stats.ActiveCount
 	inUseCount = activeCount - idleCount
 	return inUseCount, idleCount, activeCount
+}
+
+type redisLogger struct {
+	logger *zlog.Logger
+}
+
+func newLogger() *redisLogger {
+	return &redisLogger{
+		logger: zlog.GetZapLogger(),
+	}
 }

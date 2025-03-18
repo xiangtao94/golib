@@ -1,6 +1,7 @@
 package server
 
 import (
+	"fmt"
 	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
 	"log"
@@ -8,26 +9,22 @@ import (
 	"syscall"
 )
 
-type ServerConfig struct {
-	Address string `yaml:"address"`
-}
-
-func (conf *ServerConfig) check() {
-	if strings.Trim(conf.Address, " ") == "" {
-		conf.Address = ":8080"
+func Start(engine *gin.Engine, port int, postFunc func(engine *gin.Engine)) {
+	defer postFunc(engine)
+	addr := fmt.Sprintf(":%v", port)
+	if strings.Trim(addr, " ") == "" {
+		addr = ":8080"
 	}
-}
-
-func Run(engine *gin.Engine, addr string) (err error) {
-	conf := &ServerConfig{Address: addr}
-	conf.check()
 	appServer := endless.NewServer(addr, engine)
 	// 监听http端口
 	appServer.BeforeBegin = func(add string) {
 		log.Println(syscall.Getpid(), "server run", addr)
 	}
+	// 服务启动
 	if err := appServer.ListenAndServe(); err != nil {
-		return err
+		if strings.HasSuffix(err.Error(), "use of closed network connection") {
+			return
+		}
+		panic(err.Error())
 	}
-	return nil
 }
