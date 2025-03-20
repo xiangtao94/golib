@@ -31,6 +31,7 @@ type ElasticConf struct {
 	Addr          string `yaml:"addr"`
 	Username      string `yaml:"username"`
 	Password      string `yaml:"password"`
+	CaCert        string `yaml:"caCert"`
 	MaxReqBodyLen int    `yaml:"maxReqBodyLen"`
 	// response body 最大长度展示，0表示采用默认的10240，-1表示不打印。指定长度的时候需注意，返回的json可能被截断
 	MaxRespBodyLen int `yaml:"maxRespBodyLen"`
@@ -53,6 +54,7 @@ func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 		Username:  conf.Username,
 		Password:  conf.Password,
 		Logger:    newLogger(),
+		CACert:    []byte(conf.CaCert),
 	}
 	typeClient, err := elasticsearch.NewTypedClient(cfg)
 	if err != nil {
