@@ -12,7 +12,6 @@ require (
 	github.com/go-sql-driver/mysql v1.9.0
 	github.com/gomodule/redigo v1.9.2
 	github.com/google/uuid v1.6.0
-	github.com/json-iterator/go v1.1.12
 	github.com/pkg/errors v0.9.1
 	github.com/prometheus/client_golang v1.21.1
 	go.mongodb.org/mongo-driver v1.17.3
@@ -43,6 +42,7 @@ require (
 	github.com/golang/snappy v0.0.4 // indirect
 	github.com/jinzhu/inflection v1.0.0 // indirect
 	github.com/jinzhu/now v1.1.5 // indirect
+	github.com/json-iterator/go v1.1.12 // indirect
 	github.com/klauspost/compress v1.17.11 // indirect
 	github.com/klauspost/cpuid/v2 v2.2.7 // indirect
 	github.com/konsorten/go-windows-terminal-sequences v1.0.1 // indirect

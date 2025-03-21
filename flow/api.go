@@ -1,17 +1,18 @@
 package flow
 
 import (
-	jsoniter "github.com/json-iterator/go"
+	"encoding/json"
 	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/http"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 type ApiRes struct {
-	Code      int                 `json:"code"`
-	Message   string              `json:"message"`
-	RequestId string              `json:"request_id"`
-	Data      jsoniter.RawMessage `json:"data"`
+	Code      int             `json:"code"`
+	Message   string          `json:"message"`
+	RequestId string          `json:"request_id"`
+	Data      json.RawMessage `json:"data,omitempty"`
+	Result    json.RawMessage `json:"result,omitempty"`
 }
 
 type IApi interface {
@@ -130,7 +131,7 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions)
 func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
 	apiRes := &ApiRes{}
 	if len(res.Response) > 0 {
-		e := jsoniter.Unmarshal(res.Response, &apiRes)
+		e := json.Unmarshal(res.Response, &apiRes)
 		if e != nil {
 			// 限制一下错误日志打印的长度，2k
 			data := res.Response
@@ -154,7 +155,7 @@ func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error
 	}
 	if len(data.Data) > 0 {
 		// 解析数据
-		if err = jsoniter.Unmarshal(data.Data, outPut); err != nil {
+		if err = json.Unmarshal(data.Data, outPut); err != nil {
 			zlog.Errorf(entity.GetCtx(), "api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())
 			return errors.ErrorSystemError
 		}
