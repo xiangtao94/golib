@@ -89,8 +89,8 @@ var defaultNew = func() Render {
 }
 
 type DefaultRender struct {
-	Code      int         `json:"code"`
-	Message   string      `json:"message"`
+	Code      int         `json:"code" example:"200"`
+	Message   string      `json:"message" example:"Success"`
 	RequestId string      `json:"request_id,omitempty"`
 	Data      interface{} `json:"data"`
 }

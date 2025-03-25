@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
+	swaggerfiles "github.com/swaggo/files"
+	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
@@ -41,6 +43,9 @@ func Main(engine *gin.Engine, preFunc func(engine *gin.Engine), postFunc func(en
 	engine.Use(middleware.Recovery(conf.GetHandleRecoveryFunc()))
 	// 启动前置处理
 	preFunc(engine)
+	// 添加swagger
+	engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+
 	// 6.启动
 	appServer := endless.NewServer(addr, engine)
 	appServer.BeforeBegin = func(add string) {
