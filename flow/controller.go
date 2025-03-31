@@ -77,8 +77,12 @@ func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 				// 尝试 Form 绑定
 				err = ctx.ShouldBindWith(&newReq, binding.Form)
 			default:
-				// GET/DELETE 等请求使用 Query 参数绑定
-				err = ctx.ShouldBindWith(&newReq, binding.Query)
+				if len(ctx.Params) > 0 {
+					err = ctx.ShouldBindUri(&newReq)
+				} else {
+					// GET/DELETE 等请求使用 Form 参数绑定
+					err = ctx.ShouldBindWith(&newReq, binding.Form)
+				}
 			}
 		} else {
 			err = ctx.ShouldBind(&newReq)
