@@ -18,6 +18,8 @@ var (
 	isDocker bool
 	// 项目AppName
 	AppName = "demo"
+	// 国际化默认语言 zh 、en
+	DefaultLang = "zh"
 )
 
 func init() {
@@ -37,6 +39,14 @@ func GetRootPath() string {
 	} else {
 		return DefaultRootPath
 	}
+}
+
+func GetLanguage() string {
+	return DefaultLang
+}
+
+func SetLanguage(lang string) {
+	DefaultLang = lang
 }
 
 // GetConfDirPath 返回配置文件目录绝对地址

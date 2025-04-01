@@ -1,127 +1,83 @@
 package errors
 
-import (
-	"fmt"
+import "github.com/xiangtao94/golib/pkg/env"
 
-	"github.com/pkg/errors"
-)
-
+// Error 结构体支持多语言
 type Error struct {
-	Code    int
-	Message string
+	Code     int
+	Messages map[string]string // 存储不同语言的消息
 }
 
-func NewError(code int, message string) *Error {
+// NewError 创建新的错误对象，并支持双语
+func NewError(code int, messages map[string]string) *Error {
+	// 如果messages为空，则自动从ErrMsg获取
+	if messages == nil {
+		messages = make(map[string]string)
+	}
+
+	// 获取zh和en默认消息
+	if msg, ok := ErrMsg["zh"][code]; ok {
+		messages["zh"] = msg
+	}
+	if msg, ok := ErrMsg["en"][code]; ok {
+		messages["en"] = msg
+	}
+
 	return &Error{
-		Code:    code,
-		Message: message,
+		Code:     code,
+		Messages: messages,
 	}
 }
 
+// GetMessage 获取指定语言的错误信息
+func (err Error) GetMessage() string {
+	defaultLang := env.GetLanguage()
+	// 如果语言不存在，返回默认语言信息
+	if msg, exists := err.Messages[defaultLang]; exists {
+		return msg
+	}
+	return "未知错误"
+}
+
+// Error 方法默认返回当前设定语言的信息
 func (err Error) Error() string {
-	return err.Message
+	return err.GetMessage()
 }
 
-func (err Error) Sprintf(v ...interface{}) Error {
-	err.Message = fmt.Sprintf(err.Message, v...)
-	return err
-}
-
-func (err Error) Equal(e error) bool {
-	switch errors.Cause(e).(type) {
-	case Error:
-		return err.Code == errors.Cause(e).(Error).Code
-	default:
-		return false
-	}
-}
-
-func (err Error) WrapPrint(core error, message string) error {
-	if core == nil {
-		return nil
-	}
-	err.Message = fmt.Sprint(err.Message, core)
-	return errors.Wrap(err, message)
-}
-
-func (err Error) WrapPrintf(core error, format string, message ...interface{}) error {
-	if core == nil {
-		return nil
-	}
-	err.Message = fmt.Sprintf(err.Message, core)
-	return errors.Wrap(err, fmt.Sprintf(format, message...))
-}
-
-func (err Error) Wrap(core error) error {
-	if core == nil {
-		return nil
-	}
-	msg := err.Message
-	err.Message = core.Error()
-	return errors.Wrap(err, msg)
-}
-
-// 标准准出错误码定义
+// 定义错误码
 const (
-	// 通用错误码
-	PARAM_ERROR     = 1   //参数错误
-	SYSTEM_ERROR    = 2   //服务内部错误
-	USER_NOT_LOGIN  = 3   //用户未登录
-	INVALID_REQUEST = 6   //无效请求
-	DEFAULT_ERROR   = 100 //默认错误，未准出的错误码，会修改为此错误码
-	CUSTOM_ERROR    = 101 //自定义错误，无固定错误文案
+	SYSTEM_ERROR    = 1
+	PARAM_ERROR     = 2
+	USER_NOT_LOGIN  = 3
+	INVALID_REQUEST = 4
+	DEFAULT_ERROR   = 100
+	CUSTOM_ERROR    = 101
 )
 
-// 标准准出错误码文案定义
-var ErrMsg = map[int]string{
-	// 通用错误文案
-	PARAM_ERROR:     "请求参数错误",
-	SYSTEM_ERROR:    "服务异常，请稍后重试",
-	USER_NOT_LOGIN:  "用户Session已失效，请重新登录",
-	INVALID_REQUEST: "请求无效，请稍后再试",
-	DEFAULT_ERROR:   "服务开小差了，请稍后再试",
+// 多语言错误消息
+var ErrMsg = map[string]map[int]string{
+	"zh": {
+		PARAM_ERROR:     "请求参数错误",
+		SYSTEM_ERROR:    "服务异常，请稍后重试",
+		USER_NOT_LOGIN:  "用户Session已失效，请重新登录",
+		INVALID_REQUEST: "请求无效，请稍后再试",
+		DEFAULT_ERROR:   "服务开小差了，请稍后再试",
+	},
+	"en": {
+		PARAM_ERROR:     "Request parameter error",
+		SYSTEM_ERROR:    "Service exception, please try again later",
+		USER_NOT_LOGIN:  "User session expired, please log in again",
+		INVALID_REQUEST: "Invalid request, please try again later",
+		DEFAULT_ERROR:   "The service is down, please try again later",
+	},
 }
 
-// *****以下是通用准出错误码的简便定义***********
-// 正常
-var ErrorSuccess = Error{
-	Code:    0,
-	Message: "success",
-}
-
-// 参数错误
-var ErrorParamInvalid = Error{
-	Code:    PARAM_ERROR,
-	Message: ErrMsg[PARAM_ERROR],
-}
-
-// 系统异常
-var ErrorSystemError = Error{
-	Code:    SYSTEM_ERROR,
-	Message: ErrMsg[SYSTEM_ERROR],
-}
-
-// 用户未登录
-var ErrorUserNotLogin = Error{
-	Code:    USER_NOT_LOGIN,
-	Message: ErrMsg[USER_NOT_LOGIN],
-}
-
-// 无效请求
-var ErrorInvalidRequest = Error{
-	Code:    INVALID_REQUEST,
-	Message: ErrMsg[INVALID_REQUEST],
-}
-
-// 默认错误
-var ErrorDefault = Error{
-	Code:    DEFAULT_ERROR,
-	Message: ErrMsg[DEFAULT_ERROR],
-}
-
-// 自定义错误
-// 使用方式：ErrorCustomError.Sprintf(v)
-var ErrorCustomError = Error{
-	Code:    CUSTOM_ERROR,
-	Message: "%s",
-}
+// 定义标准错误
+var (
+	ErrorParamInvalid   = NewError(PARAM_ERROR, nil)
+	ErrorSystemError    = NewError(SYSTEM_ERROR, nil)
+	ErrorUserNotLogin   = NewError(USER_NOT_LOGIN, nil)
+	ErrorInvalidRequest = NewError(INVALID_REQUEST, nil)
+	ErrorDefault        = NewError(DEFAULT_ERROR, nil)
+	ErrorCustomError    = NewError(CUSTOM_ERROR, map[string]string{"zh": "%s", "en": "%s"})
+)
