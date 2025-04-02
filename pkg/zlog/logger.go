@@ -2,8 +2,8 @@ package zlog
 
 import (
 	"github.com/gin-gonic/gin"
+	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
 	"github.com/xiangtao94/golib/pkg/env"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,47 +73,25 @@ func newLogger() *zap.Logger {
 		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
 	})
 
+	encoder := getEncoder()
 	name := logConfig.ModuleName
 	if name == "" {
 		name = "server"
 	}
 	var zapCore []zapcore.Core
-	if logConfig.Stdout {
-		c := zapcore.NewCore(
-			getEncoder(),
-			getLogWriter(name, txtLogStdout),
-			stdLevel)
-		zapCore = append(zapCore, c)
-	}
-
-	// 仅开发环境有效，便于开发调试
+	// 控制台输出
+	stdoutCore := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel)
+	zapCore = append(zapCore, stdoutCore)
 	if logConfig.Log2File {
-		zapCore = append(zapCore,
-			zapcore.NewCore(
-				getEncoder(),
-				getLogWriter(name, txtLogNormal),
-				infoLevel))
-
-		zapCore = append(zapCore,
-			zapcore.NewCore(
-				getEncoder(),
-				getLogWriter(name, txtLogWarnFatal),
-				errorLevel))
+		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
+		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
 	}
-
 	// core
 	core := zapcore.NewTee(zapCore...)
-
 	// 开启开发模式，堆栈跟踪
 	caller := zap.WithCaller(true)
-
-	// 由于之前没有DPanic，同化DPanic和Panic
 	development := zap.Development()
-
-	// 设置初始化字段
 	filed := zap.Fields()
-
-	// 构造日志
 	logger := zap.New(core, filed, caller, development)
 
 	return logger
@@ -159,28 +137,23 @@ func getEncoder() zapcore.Encoder {
 	}
 }
 
-func getLogWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
-	var w io.Writer
-	if loggerType == txtLogStdout {
-		// stdOut
-		w = os.Stdout
-	} else {
-		// 打印到 name.log[.wf] 中
-		var err error
-		filename := filepath.Join(strings.TrimSuffix(logConfig.Path, "/"), appendLogFileTail(name, loggerType))
-		w, err = os.OpenFile(filename, os.O_WRONLY|os.O_APPEND|os.O_CREATE, 0644)
-		if err != nil {
-			panic("open log file error: " + err.Error())
-		}
-	}
-
+func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
+	logDir := strings.TrimSuffix(logConfig.Path, "/")
+	filenamePattern := filepath.Join(logDir, appendLogFileTail(name, loggerType, true))
+	filename := filepath.Join(logDir, appendLogFileTail(name, loggerType, true))
+	// Info按日期切割日志，每天一个新文件
+	fileWriter, _ := rotatelogs.New(
+		filenamePattern,                           // 生成的日志文件格式
+		rotatelogs.WithLinkName(filename),         // 软链接，指向最新日志
+		rotatelogs.WithMaxAge(14*24*time.Hour),    // 只保留 14 天的日志
+		rotatelogs.WithRotationTime(24*time.Hour), // 每 24 小时切割一次
+	)
 	if !logConfig.BufferSwitch {
-		return zapcore.AddSync(w)
+		return zapcore.AddSync(fileWriter)
 	}
-
 	// 开启缓冲区
 	ws = &zapcore.BufferedWriteSyncer{
-		WS:            zapcore.AddSync(w),
+		WS:            zapcore.AddSync(fileWriter),
 		Size:          logConfig.BufferSize,
 		FlushInterval: logConfig.BufferFlushInterval,
 		Clock:         nil,
@@ -189,7 +162,7 @@ func getLogWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
 }
 
 // genFilename 拼装完整文件名
-func appendLogFileTail(appName, loggerType string) string {
+func appendLogFileTail(appName, loggerType string, pattern bool) string {
 	var tailFixed string
 	switch loggerType {
 	case txtLogNormal:
@@ -199,8 +172,10 @@ func appendLogFileTail(appName, loggerType string) string {
 	default:
 		tailFixed = ".log"
 	}
-	date := time.Now().Format("2006-01-02")
-	return appName + tailFixed + "." + date
+	if pattern {
+		return appName + "-%Y-%m-%d" + tailFixed
+	}
+	return appName + tailFixed
 }
 
 func CloseLogger() {
@@ -287,13 +262,15 @@ func FatalLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
 /*---------------sugar Logger-------------------*/
 
 func GetLogger() (s *zap.SugaredLogger) {
-	if SugaredLogger == nil {
-		if ZapLogger == nil {
-			// 默认初始化zapLogger
-			ZapLogger = GetZapLogger()
-		}
-		SugaredLogger = ZapLogger.Sugar()
+	if SugaredLogger != nil {
+		return SugaredLogger
 	}
+	if ZapLogger != nil {
+		SugaredLogger = ZapLogger.Sugar()
+		return SugaredLogger
+	}
+	ZapLogger = GetZapLogger()
+	SugaredLogger = ZapLogger.Sugar()
 	return SugaredLogger
 }
 

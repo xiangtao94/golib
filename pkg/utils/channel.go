@@ -1,4 +1,4 @@
-package util
+package utils
 
 func SafeSendBool(ch chan bool, value bool) (closed bool) {
 	defer func() {

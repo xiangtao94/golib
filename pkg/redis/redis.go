@@ -3,12 +3,30 @@ package redis
 import (
 	"context"
 	"fmt"
+	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	redigo "github.com/gomodule/redigo/redis"
+)
+
+const (
+	EXPIRE_TIME_1_SECOND  = 1
+	EXPIRE_TIME_5_SECOND  = 5
+	EXPIRE_TIME_30_SECOND = 30
+	EXPIRE_TIME_1_MINUTE  = 60
+	EXPIRE_TIME_5_MINUTE  = 300
+	EXPIRE_TIME_15_MINUTE = 900
+	EXPIRE_TIME_30_MINUTE = 1800
+	EXPIRE_TIME_1_HOUR    = 3600
+	EXPIRE_TIME_2_HOUR    = 7200
+	EXPIRE_TIME_6_HOUR    = 21600
+	EXPIRE_TIME_12_HOUR   = 43200
+	EXPIRE_TIME_1_DAY     = 86400
+	EXPIRE_TIME_3_DAY     = 259200
+	EXPIRE_TIME_1_WEEK    = 604800
 )
 
 type RedisConf struct {
@@ -180,4 +198,15 @@ func newLogger() *redisLogger {
 	return &redisLogger{
 		logger: zlog.GetZapLogger(),
 	}
+}
+
+func GetKeyPrefix() string {
+	prefix := ""
+	// 模块名默认module，很容易冲突
+	if env.GetAppName() == "" {
+		prefix += "default:"
+	} else {
+		prefix += env.GetAppName() + ":"
+	}
+	return prefix
 }

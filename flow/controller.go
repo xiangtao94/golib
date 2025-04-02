@@ -3,7 +3,8 @@ package flow
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	"github.com/xiangtao94/golib/pkg/errors"
+	errors2 "github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/render"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"reflect"
@@ -26,6 +27,7 @@ func (entity *Controller) Action(any) (any, error) {
 	return nil, nil
 }
 
+// 手动设置requestId
 func (entity *Controller) SetTrace(traceId string) {
 	if traceId == "" {
 		zlog.Warnf(entity.ctx, "[controller] set trace failed, traceId is empty")
@@ -39,11 +41,11 @@ func (entity *Controller) ShouldRender() bool {
 }
 
 func (entity *Controller) RenderJsonFail(err error) {
-	RenderJsonFail(entity.GetCtx(), err)
+	render.RenderJsonFail(entity.GetCtx(), err)
 }
 
 func (entity *Controller) RenderJsonSuccess(data any) {
-	RenderJsonSucc(entity.GetCtx(), data)
+	render.RenderJsonSucc(entity.GetCtx(), data)
 }
 
 func slave(src any) any {
@@ -89,7 +91,7 @@ func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 		}
 		if err != nil {
 			zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
-			newCTL.RenderJsonFail(errors.ErrorParamInvalid)
+			newCTL.RenderJsonFail(errors2.ErrorParamInvalid)
 			return
 		}
 		// 实际业务逻辑执行

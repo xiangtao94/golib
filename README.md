@@ -63,9 +63,9 @@ GitHub: [https://github.com/xiangtao94/golib](https://github.com/xiangtao94/goli
 
 ```plaintext
 golib/
+├── cmd/               # http 启动命令
 ├── flow/              # 封装的面向对象的业务框架，简化开发逻辑
 ├── pkg/
-│   ├── elastic7/      # Elasticsearch 7.x 支持
 │   ├── elastic8/      # Elasticsearch 8.x 支持
 │   ├── env/           # 环境管理
 │   ├── errors/        # 错误处理
@@ -92,7 +92,7 @@ golib/
 go get -u github.com/xiangtao94/golib
 ```
 
-### 1. 使用redis
+_### 1. 使用redis
 
 ```go
 package main
@@ -141,47 +141,8 @@ func main() {
 ### 2. 使用flow框架构建web服务, 已经包含JSON类型日志框架+请求上下文
 
 ```go
-package main
-
-import (
-	"github.com/gin-gonic/gin"
-	"github.com/xiangtao94/golib"
-	"github.com/xiangtao94/golib/flow"
-	"github.com/xiangtao94/golib/pkg/conf"
-	"github.com/xiangtao94/golib/pkg/zlog"
-	"github.com/xiangtao94/golib/pkg/middleware"
-)
-
-type SWebConf struct {
-}
-
-func (s *SWebConf) GetZlogConf() zlog.LogConfig {
-	return zlog.LogConfig{}
-}
-
-func (s *SWebConf) GetAccessLogConf() middleware.AccessLoggerConfig {
-	return middleware.AccessLoggerConfig{}
-}
-
-func (s *SWebConf) GetHandleRecoveryFunc() gin.RecoveryFunc {
-	return nil
-}
-
-func (s *SWebConf) GetAppName() string {
-	return "demo"
-}
-
-func (s *SWebConf) GetPort() int {
-	return 8080
-}
-
-func main() {
-	engine := gin.New()
-	defaultConf :=  SWebConf{}
-	golib.Bootstraps(engine,defaultConf)
-	flow.Start(engine, defaultConf, nil)
-	}
-```
+ 
+```_
 ## 贡献
 
 欢迎提交 Issue 和 Pull Request，共同完善这个库。

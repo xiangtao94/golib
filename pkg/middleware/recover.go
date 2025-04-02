@@ -6,11 +6,11 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-func Recovery(handle gin.RecoveryFunc) gin.HandlerFunc {
+func RegistryRecovery(engine *gin.Engine, handle gin.RecoveryFunc) {
 	if handle == nil {
 		handle = func(c *gin.Context, err interface{}) {
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 	}
-	return gin.CustomRecovery(handle)
+	engine.Use(gin.CustomRecovery(handle))
 }

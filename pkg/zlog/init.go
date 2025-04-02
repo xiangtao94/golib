@@ -19,7 +19,7 @@ type Buffer struct {
 }
 
 type LogConfig struct {
-	Level     string `yaml:"level"`
+	Level     string `yaml:"level"` // 显示的日志等级
 	Stdout    bool   `yaml:"stdout"`
 	Buffer    Buffer `yaml:"buffer"`
 	LogToFile bool   `yaml:"logToFile"`
@@ -30,10 +30,10 @@ func (conf LogConfig) SetLogLevel() {
 }
 
 func (conf LogConfig) SetBuffer() {
-	if conf.Buffer.Switch == "false" || conf.Buffer.Switch == "0" {
+	if conf.Buffer.Switch == "false" {
 		// 明确关闭buffer
 		logConfig.BufferSwitch = false
-	} else if conf.Buffer.Switch == "true" || conf.Buffer.Switch == "1" {
+	} else if conf.Buffer.Switch == "true" {
 		// 明确开启buffer
 		logConfig.BufferSwitch = true
 	} else {
@@ -59,13 +59,10 @@ func (conf LogConfig) SetLogOutput() {
 	if env.IsDockerPlatform() && !conf.LogToFile {
 		// 容器环境
 		logConfig.Log2File = false
-		logConfig.Stdout = true
 	} else {
-		// 开发环境下默认输出到文件，支持自定义是否输出到终端
+		// 开发环境下默认输出到文件
 		logConfig.Log2File = true
-		logConfig.Stdout = conf.Stdout
 		logConfig.Path = env.GetLogDirPath()
-
 		// 目录不存在则先创建目录
 		if _, err := os.Stat(logConfig.Path); os.IsNotExist(err) {
 			err = os.MkdirAll(logConfig.Path, 0777)
@@ -81,7 +78,6 @@ var logConfig = struct {
 	ZapLevel zapcore.Level
 
 	// 以下变量仅对开发环境生效
-	Stdout     bool
 	Log2File   bool
 	Path       string
 	ModuleName string
@@ -92,7 +88,6 @@ var logConfig = struct {
 }{
 	ZapLevel: zapcore.InfoLevel,
 
-	Stdout:     false,
 	Log2File:   true,
 	Path:       "./log",
 	ModuleName: "xt-demo",
@@ -115,7 +110,6 @@ func InitLog(conf LogConfig) *zap.SugaredLogger {
 	conf.SetBuffer()
 	// 日志输出方式
 	conf.SetLogOutput()
-
 	// 初始化全局logger
 	SugaredLogger = GetLogger()
 	return SugaredLogger

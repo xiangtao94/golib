@@ -1,17 +1,23 @@
-package flow
+// Package render -----------------------------
+// @file      : render.go
+// @author    : xiangtao
+// @contact   : xiangtao@hidream.ai
+// @time      : 2025/4/2 11:10
+// -------------------------------------------
+package render
 
 import (
 	"encoding/json"
 	"fmt"
+	"github.com/gin-contrib/sse"
+	"github.com/gin-gonic/gin"
+	"github.com/pkg/errors"
 	errors2 "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
-
-	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
 )
 
 // 定义render通用类型
@@ -35,51 +41,6 @@ func newJsonRender() Render {
 		newRender = defaultNew
 	}
 	return newRender()
-}
-
-func RenderJson(ctx *gin.Context, code int, msg string, data interface{}) {
-	r := newJsonRender()
-	r.SetReturnCode(code)
-	r.SetReturnMsg(msg)
-	r.SetReturnData(data)
-	r.SetReturnRequestId(zlog.GetRequestID(ctx))
-	setCommonHeader(ctx, code, msg)
-	ctx.JSON(http.StatusOK, r)
-	return
-}
-
-func RenderJsonSucc(ctx *gin.Context, data interface{}) {
-	r := newJsonRender()
-	r.SetReturnCode(200)
-	r.SetReturnMsg("Success")
-	r.SetReturnData(data)
-	r.SetReturnRequestId(zlog.GetRequestID(ctx))
-	setCommonHeader(ctx, 200, "success")
-	ctx.JSON(http.StatusOK, r)
-	return
-}
-
-func RenderJsonFail(ctx *gin.Context, err error) {
-	r := newJsonRender()
-
-	code, msg := 500, errors.Cause(err).Error()
-	switch errors.Cause(err).(type) {
-	case errors2.Error:
-		code = errors.Cause(err).(errors2.Error).Code
-		msg = errors.Cause(err).(errors2.Error).GetMessage()
-	default:
-	}
-
-	r.SetReturnCode(code)
-	r.SetReturnMsg(msg)
-	r.SetReturnData(gin.H{})
-
-	setCommonHeader(ctx, code, msg)
-	ctx.JSON(http.StatusOK, r)
-
-	// 打印错误栈
-	StackLogger(ctx, err)
-	return
 }
 
 // default render
@@ -139,4 +100,78 @@ func StackLogger(ctx *gin.Context, err error) {
 	}
 
 	fmt.Printf("%s\n-------------------stack-start-------------------\n%+v\n-------------------stack-end-------------------\n", string(info), err)
+}
+
+func RenderJson(ctx *gin.Context, code int, msg string, data interface{}) {
+	r := newJsonRender()
+	r.SetReturnCode(code)
+	r.SetReturnMsg(msg)
+	r.SetReturnData(data)
+	r.SetReturnRequestId(zlog.GetRequestID(ctx))
+	setCommonHeader(ctx, code, msg)
+	ctx.JSON(http.StatusOK, r)
+	return
+}
+
+func RenderJsonSucc(ctx *gin.Context, data interface{}) {
+	r := newJsonRender()
+	r.SetReturnCode(200)
+	r.SetReturnMsg("Success")
+	r.SetReturnData(data)
+	r.SetReturnRequestId(zlog.GetRequestID(ctx))
+	setCommonHeader(ctx, 200, "success")
+	ctx.JSON(http.StatusOK, r)
+	return
+}
+
+func RenderJsonFail(ctx *gin.Context, err error) {
+	r := newJsonRender()
+
+	code, msg := 500, errors.Cause(err).Error()
+	switch errors.Cause(err).(type) {
+	case errors2.Error:
+		code = errors.Cause(err).(errors2.Error).Code
+		msg = errors.Cause(err).(errors2.Error).GetMessage()
+	default:
+	}
+
+	r.SetReturnCode(code)
+	r.SetReturnMsg(msg)
+	r.SetReturnData(gin.H{})
+
+	setCommonHeader(ctx, code, msg)
+	ctx.JSON(http.StatusOK, r)
+
+	// 打印错误栈
+	StackLogger(ctx, err)
+	return
+}
+
+func RenderStream(ctx *gin.Context, id, event string, data interface{}) {
+	flusher, _ := ctx.Writer.(http.Flusher)
+	sse.Encode(ctx.Writer, sse.Event{
+		Id:    id,
+		Event: event,
+		Data:  data,
+	})
+	flusher.Flush()
+}
+
+func RenderStreamFail(ctx *gin.Context, err error) {
+	rander := DefaultRender{}
+	if e, ok := err.(errors2.Error); ok {
+		rander.Code = e.Code
+		rander.Message = e.GetMessage()
+	} else {
+		rander.Code = errors2.ErrorSystemError.Code
+		rander.Message = errors2.ErrorSystemError.GetMessage()
+	}
+	rander.RequestId = zlog.GetRequestID(ctx)
+	flusher, _ := ctx.Writer.(http.Flusher)
+	str, _ := json.Marshal(rander)
+	sse.Encode(ctx.Writer, sse.Event{
+		Event: "error",
+		Data:  string(str),
+	})
+	flusher.Flush()
 }

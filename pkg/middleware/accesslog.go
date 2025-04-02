@@ -173,3 +173,7 @@ func getHeader(ctx *gin.Context) string {
 	}
 	return strings.TrimRight(cStr, "&")
 }
+
+func RegistryAccessLog(engine *gin.Engine, conf AccessLoggerConfig) {
+	engine.Use(AccessLog(conf))
+}

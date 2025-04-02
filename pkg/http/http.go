@@ -8,7 +8,7 @@ import (
 	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
-	"github.com/xiangtao94/golib/pkg/util"
+	"github.com/xiangtao94/golib/pkg/utils"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
 	"net"
@@ -409,7 +409,7 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 				break
 			}
 		}
-		util.SafeSendBool(stopChan, true)
+		utils.SafeSendBool(stopChan, true)
 	})
 	select {
 	case <-ticker.C:
