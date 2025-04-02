@@ -66,7 +66,7 @@ func RenderJsonFail(ctx *gin.Context, err error) {
 	switch errors.Cause(err).(type) {
 	case errors2.Error:
 		code = errors.Cause(err).(errors2.Error).Code
-		msg = errors.Cause(err).(errors2.Error).Message
+		msg = errors.Cause(err).(errors2.Error).GetMessage()
 	default:
 	}
 

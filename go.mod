@@ -4,12 +4,12 @@ go 1.24
 
 require (
 	github.com/apache/rocketmq-client-go/v2 v2.1.2
-	github.com/bytedance/gopkg v0.1.1
+	github.com/bytedance/gopkg v0.1.2
 	github.com/elastic/go-elasticsearch/v8 v8.17.1
 	github.com/fvbock/endless v0.0.0-20170109170031-447134032cb6
 	github.com/gin-contrib/sse v1.0.0
 	github.com/gin-gonic/gin v1.10.0
-	github.com/go-sql-driver/mysql v1.9.0
+	github.com/go-sql-driver/mysql v1.9.1
 	github.com/gomodule/redigo v1.9.2
 	github.com/google/uuid v1.6.0
 	github.com/pkg/errors v0.9.1

@@ -4,8 +4,8 @@ import "github.com/xiangtao94/golib/pkg/env"
 
 // Error 结构体支持多语言
 type Error struct {
-	Code     int
-	Messages map[string]string // 存储不同语言的消息
+	Code    int
+	Message map[string]string // 存储不同语言的消息
 }
 
 // NewError 创建新的错误对象，并支持双语
@@ -24,8 +24,8 @@ func NewError(code int, messages map[string]string) *Error {
 	}
 
 	return &Error{
-		Code:     code,
-		Messages: messages,
+		Code:    code,
+		Message: messages,
 	}
 }
 
@@ -33,7 +33,7 @@ func NewError(code int, messages map[string]string) *Error {
 func (err Error) GetMessage() string {
 	defaultLang := env.GetLanguage()
 	// 如果语言不存在，返回默认语言信息
-	if msg, exists := err.Messages[defaultLang]; exists {
+	if msg, exists := err.Message[defaultLang]; exists {
 		return msg
 	}
 	return "未知错误"

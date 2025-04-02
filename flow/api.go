@@ -148,10 +148,7 @@ func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
 
 func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error) error {
 	if data.Code != 200 {
-		return errors.Error{
-			Code:    data.Code,
-			Message: data.Message,
-		}
+		return errors.NewError(data.Code, map[string]string{"zh": data.Message, "en": data.Message})
 	}
 	if len(data.Data) > 0 {
 		// 解析数据
