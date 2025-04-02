@@ -6,6 +6,7 @@ import (
 	errors2 "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"gorm.io/gorm"
+	"gorm.io/gorm/schema"
 	"time"
 )
 
@@ -139,19 +140,8 @@ func SetNamedDBClient(namedDbs map[string]*gorm.DB) {
 	NamedDBClient = namedDbs
 }
 
-// 基于范型实现CommonDao
-type CommonEntity interface {
-	TableName() string
-	GetId() any
-}
-
-type CommonDao[T CommonEntity] struct {
+type CommonDao[T schema.Tabler] struct {
 	Dao
-	table T
-}
-
-func (b *CommonDao[T]) OnCreate() {
-	b.SetTable(b.table.TableName())
 }
 
 func (b *CommonDao[T]) Insert(add *T) error {
@@ -161,6 +151,26 @@ func (b *CommonDao[T]) Insert(add *T) error {
 	err := b.GetDB().Create(add).Error
 	if err != nil {
 		zlog.Error(b.GetCtx(), "insert error: %s", err)
+		return errors2.ErrorSystemError
+	}
+	return nil
+}
+
+func (b *CommonDao[T]) Update(update *T) error {
+	db := b.GetDB()
+	err := db.Save(update).Error
+	if err != nil {
+		zlog.Error(b.GetCtx(), "update error: %s", err)
+		return errors2.ErrorSystemError
+	}
+	return nil
+}
+
+func (b *CommonDao[T]) Delete(delete *T) error {
+	db := b.GetDB()
+	err := db.Delete(delete).Error
+	if err != nil {
+		zlog.Error(b.GetCtx(), "update error: %s", err)
 		return errors2.ErrorSystemError
 	}
 	return nil
@@ -189,16 +199,6 @@ func (b *CommonDao[T]) UpdateById(id any, update map[string]interface{}) error {
 	return nil
 }
 
-func (b *CommonDao[T]) UpdateEntity(update T) error {
-	db := b.GetDB()
-	err := db.Model(b.table).Where("id = ?", update.GetId()).Updates(update).Error
-	if err != nil {
-		zlog.Error(b.GetCtx(), "update error: %s", err)
-		return errors2.ErrorSystemError
-	}
-	return nil
-}
-
 func (b *CommonDao[T]) GetById(id any) (res *T, err error) {
 	db := b.GetDB()
 	db = db.Where("id = ?", id).First(&res)
@@ -211,7 +211,8 @@ func (b *CommonDao[T]) GetById(id any) (res *T, err error) {
 
 func (b *CommonDao[T]) DeleteById(id any) (err error) {
 	db := b.GetDB()
-	err = db.Where("id = ?", id).Delete(b.table).Error
+	var t T
+	err = db.Where("id = ?", id).Delete(&t).Error
 	if err != nil {
 		zlog.Error(b.GetCtx(), "delete error: %s", err)
 		return errors2.ErrorSystemError
