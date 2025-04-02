@@ -140,7 +140,7 @@ func getEncoder() zapcore.Encoder {
 func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
 	logDir := strings.TrimSuffix(logConfig.Path, "/")
 	filenamePattern := filepath.Join(logDir, appendLogFileTail(name, loggerType, true))
-	filename := filepath.Join(logDir, appendLogFileTail(name, loggerType, true))
+	filename := filepath.Join(logDir, appendLogFileTail(name, loggerType, false))
 	// Info按日期切割日志，每天一个新文件
 	fileWriter, _ := rotatelogs.New(
 		filenamePattern,                           // 生成的日志文件格式
