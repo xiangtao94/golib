@@ -38,12 +38,12 @@ func (entity *Layer) OnCreate() {
 }
 
 // 复制对象并带上新的上下文
-func CopyWithCtx[T ILayer](ctx *gin.Context, src T) T {
+func CopyWithCtx[T ILayer](src T) T {
 	var v T
-	v = NewObject(src) // 深拷贝 src
-	v.SetCtx(ctx)      // 设置新的上下文
-	v.SetEntity(v)     // 确保实体指向自己
-	v.OnCreate()       // 调用创建方法
+	v = NewObject(src)     // 深拷贝 src
+	v.SetCtx(src.GetCtx()) // 设置新的上下文
+	v.SetEntity(v)         // 确保实体指向自己
+	v.OnCreate()           // 调用创建方法
 	return v
 }
 
