@@ -9,6 +9,12 @@ import (
 
 const DefaultRootPath = "."
 
+const (
+	I18N_CONTEXT = "_i18n"
+	I18N_ZH      = "zh"
+	I18N_EN      = "en"
+)
+
 var (
 	// 本地ip
 	LocalIP string
@@ -19,7 +25,7 @@ var (
 	// 项目AppName
 	AppName = "demo"
 	// 国际化默认语言 zh 、en
-	DefaultLang = "zh"
+	DefaultLang = I18N_ZH
 )
 
 func init() {

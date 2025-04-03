@@ -131,8 +131,10 @@ func RenderJsonFail(ctx *gin.Context, err error) {
 	switch errors.Cause(err).(type) {
 	case errors2.Error:
 		code = errors.Cause(err).(errors2.Error).Code
-		msg = errors.Cause(err).(errors2.Error).GetMessage()
+		msg = errors.Cause(err).(errors2.Error).GetMessage(ctx)
 	default:
+		code = errors2.ErrorSystemError.Code
+		msg = errors2.ErrorSystemError.GetMessage(ctx)
 	}
 
 	r.SetReturnCode(code)
@@ -161,10 +163,10 @@ func RenderStreamFail(ctx *gin.Context, err error) {
 	rander := DefaultRender{}
 	if e, ok := err.(errors2.Error); ok {
 		rander.Code = e.Code
-		rander.Message = e.GetMessage()
+		rander.Message = e.GetMessage(ctx)
 	} else {
 		rander.Code = errors2.ErrorSystemError.Code
-		rander.Message = errors2.ErrorSystemError.GetMessage()
+		rander.Message = errors2.ErrorSystemError.GetMessage(ctx)
 	}
 	rander.RequestId = zlog.GetRequestID(ctx)
 	flusher, _ := ctx.Writer.(http.Flusher)

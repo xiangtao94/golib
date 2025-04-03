@@ -1,6 +1,9 @@
 package errors
 
-import "github.com/xiangtao94/golib/pkg/env"
+import (
+	"github.com/gin-gonic/gin"
+	"github.com/xiangtao94/golib/pkg/env"
+)
 
 // Error 结构体支持多语言
 type Error struct {
@@ -30,18 +33,22 @@ func NewError(code int, messages map[string]string) *Error {
 }
 
 // GetMessage 获取指定语言的错误信息
-func (err Error) GetMessage() string {
-	defaultLang := env.GetLanguage()
+func (err Error) GetMessage(ctx *gin.Context) string {
+	lang := ctx.GetString(env.I18N_CONTEXT)
 	// 如果语言不存在，返回默认语言信息
-	if msg, exists := err.Message[defaultLang]; exists {
+	if msg, exists := err.Message[lang]; exists {
 		return msg
+	} else {
+		return err.Message[env.GetLanguage()]
 	}
-	return "未知错误"
 }
 
 // Error 方法默认返回当前设定语言的信息
 func (err Error) Error() string {
-	return err.GetMessage()
+	if msg, ok := err.Message[env.GetLanguage()]; ok {
+		return msg
+	}
+	return "Unknown error"
 }
 
 // 定义错误码
