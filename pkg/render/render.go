@@ -116,7 +116,7 @@ func RenderJson(ctx *gin.Context, code int, msg string, data interface{}) {
 func RenderJsonSucc(ctx *gin.Context, data interface{}) {
 	r := newJsonRender()
 	r.SetReturnCode(200)
-	r.SetReturnMsg("Success")
+	r.SetReturnMsg("success")
 	r.SetReturnData(data)
 	r.SetReturnRequestId(zlog.GetRequestID(ctx))
 	setCommonHeader(ctx, 200, "success")
