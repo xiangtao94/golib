@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
+	"slices"
 	"strings"
 	"time"
 	"unsafe"
@@ -39,8 +40,9 @@ func (w customRespWriter) Write(b []byte) (int, error) {
 
 // access日志打印
 type AccessLoggerConfig struct {
-	SkipPaths  []string `yaml:"skipPaths"`
-	SkipCookie bool     `yaml:"skipCookie"`
+	SkipPaths    []string `yaml:"skipPaths"`
+	PrintHeaders []string `yaml:"printHeaders"`
+	SkipCookie   bool     `yaml:"skipCookie"`
 	// request body 最大长度展示，0表示采用默认的10240，-1表示不打印
 	MaxReqBodyLen int `yaml:"maxReqBodyLen"`
 	// response body 最大长度展示，0表示采用默认的10240，-1表示不打印。指定长度的时候需注意，返回的json可能被截断
@@ -106,11 +108,13 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		commonFields := []zlog.Field{
 			zlog.String("method", c.Request.Method),
 			zlog.String("clientIp", c.ClientIP()),
-			zlog.String("requestHeader", getHeader(c)),
 			zlog.String("requestParam", reqParam),
 			zlog.Int("responseStatus", c.Writer.Status()),
 			zlog.String("response", response),
 			zlog.Int("bodySize", c.Writer.Size()),
+		}
+		if len(conf.PrintHeaders) > 0 {
+			commonFields = append(commonFields, zlog.String("requestHeader", getHeader(c, conf.PrintHeaders)))
 		}
 		if !conf.SkipCookie {
 			commonFields = append(commonFields, zlog.String("cookie", getCookie(c)))
@@ -166,10 +170,13 @@ func getCookie(ctx *gin.Context) string {
 	}
 	return strings.TrimRight(cStr, "&")
 }
-func getHeader(ctx *gin.Context) string {
+
+func getHeader(ctx *gin.Context, headers []string) string {
 	cStr := ""
 	for k, v := range ctx.Request.Header {
-		cStr += fmt.Sprintf("%s=%s&", k, v)
+		if slices.Contains(headers, k) {
+			cStr += fmt.Sprintf("%s=%s&", k, v)
+		}
 	}
 	return strings.TrimRight(cStr, "&")
 }
