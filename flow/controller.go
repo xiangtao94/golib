@@ -12,7 +12,7 @@ import (
 
 type IController[T any] interface {
 	ILayer
-	Action(req T) (any, error)
+	Action(req *T) (any, error)
 	ShouldRender() bool
 	SetTrace(traceId string)
 	RenderJsonFail(err error)
@@ -23,8 +23,9 @@ type Controller struct {
 	Layer
 }
 
-func (entity *Controller) Action(any) (any, error) {
-	return nil, nil
+func (entity *Controller) Action(req *any) (any, error) {
+	//TODO implement me
+	panic("implement me")
 }
 
 // 手动设置requestId
@@ -95,7 +96,7 @@ func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 			return
 		}
 		// 实际业务逻辑执行
-		data, err := newCTL.Action(newReq)
+		data, err := newCTL.Action(&newReq)
 		if err != nil {
 			zlog.Errorf(newCTL.GetCtx(), "Controller %T call action logic error, err:%+v", newCTL, err)
 			newCTL.RenderJsonFail(err)
