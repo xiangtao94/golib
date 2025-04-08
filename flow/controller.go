@@ -6,7 +6,6 @@ import (
 	errors2 "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/render"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"net/http"
 	"reflect"
 )
 
@@ -14,6 +13,7 @@ type IController[T any] interface {
 	ILayer
 	Action(req *T) (any, error)
 	ShouldRender() bool
+	RequestBind() binding.Binding
 	SetTrace(traceId string)
 	RenderJsonFail(err error)
 	RenderJsonSuccess(data any)
@@ -35,6 +35,11 @@ func (entity *Controller) SetTrace(traceId string) {
 		return
 	}
 	entity.GetCtx().Set(zlog.ContextKeyRequestID, traceId)
+}
+
+// 默认json
+func (entity *Controller) RequestBind() binding.Binding {
+	return binding.JSON
 }
 
 func (entity *Controller) ShouldRender() bool {
@@ -68,24 +73,8 @@ func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 		newCTL.SetEntity(newCTL)
 		// 处理请求序列化
 		var newReq T
-		method := ctx.Request.Method
 		var err error
-		if len(ctx.ContentType()) == 0 { // 针对无 Content-Type 的请求特殊处理
-			switch method {
-			case http.MethodPost, http.MethodPut, http.MethodPatch:
-				// 优先尝试 JSON 绑定
-				if err = ctx.ShouldBindBodyWith(&newReq, binding.JSON); err == nil {
-					break
-				}
-				// 尝试 Form 绑定
-				err = ctx.ShouldBindWith(&newReq, binding.Form)
-			default:
-				// GET/DELETE 等请求使用 Form 参数绑定
-				err = ctx.ShouldBindWith(&newReq, binding.Form)
-			}
-		} else {
-			err = ctx.ShouldBind(&newReq)
-		}
+		err = ctx.ShouldBindWith(&newReq, newCTL.RequestBind())
 		if err != nil {
 			zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
 			newCTL.RenderJsonFail(errors2.ErrorParamInvalid)
