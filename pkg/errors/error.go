@@ -12,7 +12,7 @@ type Error struct {
 }
 
 // NewError 创建新的错误对象，并支持双语
-func NewError(code int, messages map[string]string) *Error {
+func NewError(code int, messages map[string]string) Error {
 	// 如果messages为空，则自动从ErrMsg获取
 	if messages == nil {
 		messages = make(map[string]string)
@@ -26,7 +26,7 @@ func NewError(code int, messages map[string]string) *Error {
 		messages["en"] = msg
 	}
 
-	return &Error{
+	return Error{
 		Code:    code,
 		Message: messages,
 	}
