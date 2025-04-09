@@ -3,7 +3,7 @@ package flow
 import (
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
-	errors2 "github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/render"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"reflect"
@@ -37,9 +37,9 @@ func (entity *Controller) SetTrace(traceId string) {
 	entity.GetCtx().Set(zlog.ContextKeyRequestID, traceId)
 }
 
-// 默认json
+// 默认Form
 func (entity *Controller) RequestBind() binding.Binding {
-	return binding.JSON
+	return binding.Form
 }
 
 func (entity *Controller) ShouldRender() bool {
@@ -74,10 +74,14 @@ func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 		// 处理请求序列化
 		var newReq T
 		var err error
-		err = ctx.ShouldBindWith(&newReq, newCTL.RequestBind())
+		if len(ctx.ContentType()) == 0 { // 针对无 Content-Type 的请求特殊处理, 按照controller的bind来
+			err = ctx.ShouldBindWith(&newReq, newCTL.RequestBind())
+		} else {
+			err = ctx.ShouldBind(&newReq)
+		}
 		if err != nil {
 			zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
-			newCTL.RenderJsonFail(errors2.ErrorParamInvalid)
+			newCTL.RenderJsonFail(errors.ErrorParamInvalid)
 			return
 		}
 		// 实际业务逻辑执行
