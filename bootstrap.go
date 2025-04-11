@@ -13,6 +13,8 @@ import (
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
+	"net/http"
+	_ "net/http/pprof"
 )
 
 type IBootstrapConf interface {
@@ -45,4 +47,6 @@ func Bootstraps(engine *gin.Engine, conf IBootstrapConf) {
 	middleware.RegistryRecovery(engine, conf.GetHandleRecoveryFunc())
 	// 添加swagger
 	engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+	// 添加pprof
+	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
 }
