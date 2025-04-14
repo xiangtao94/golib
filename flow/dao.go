@@ -190,7 +190,8 @@ func (b *CommonDao[T]) BatchInsert(add []*T) error {
 
 func (b *CommonDao[T]) UpdateById(id any, update map[string]interface{}) error {
 	update["updated_at"] = time.Now()
-	db := b.GetDB()
+	var t T
+	db := b.GetDB().Model(&t)
 	err := db.Where("id = ?", id).Updates(update).Error
 	if err != nil {
 		zlog.Error(b.GetCtx(), "update error: %s", err)
