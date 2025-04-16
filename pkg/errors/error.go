@@ -1,6 +1,7 @@
 package errors
 
 import (
+	"fmt"
 	"github.com/gin-gonic/gin"
 	"github.com/xiangtao94/golib/pkg/env"
 )
@@ -30,6 +31,13 @@ func NewError(code int, messages map[string]string) Error {
 		Code:    code,
 		Message: messages,
 	}
+}
+
+func (err Error) Sprintf(v ...interface{}) Error {
+	for s, s2 := range err.Message {
+		err.Message[s] = fmt.Sprintf(s2, v...)
+	}
+	return err
 }
 
 // GetMessage 获取指定语言的错误信息
