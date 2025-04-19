@@ -147,7 +147,6 @@ func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
 		}
 		reqBody = c.Request.PostForm.Encode()
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-
 	} else if c.Request.Body != nil {
 		requestBody, err := c.GetRawData()
 		if err != nil {
@@ -155,6 +154,9 @@ func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
 		}
 		reqBody = *(*string)(unsafe.Pointer(&requestBody))
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
+	} else if len(c.Request.URL.Query()) > 0 {
+		allParams := c.Request.URL.Query()
+		reqBody = allParams.Encode()
 	}
 	// 截断参数
 	if len(reqBody) > maxReqBodyLen {
