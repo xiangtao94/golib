@@ -2,14 +2,14 @@ package redis
 
 import (
 	"context"
-	"fmt"
+	"github.com/duke-git/lancet/v2/slice"
+	"github.com/redis/go-redis/v9"
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"strings"
+	"net"
 	"time"
 
 	"github.com/gin-gonic/gin"
-	redigo "github.com/gomodule/redigo/redis"
 )
 
 const (
@@ -51,7 +51,7 @@ func (conf *RedisConf) checkConf() {
 		conf.MaxActive = 100
 	}
 	if conf.IdleTimeout == 0 {
-		conf.IdleTimeout = 5 * time.Minute
+		conf.IdleTimeout = 30 * time.Minute
 	}
 	if conf.MaxConnLifetime == 0 {
 		conf.MaxConnLifetime = 10 * time.Minute
@@ -67,108 +67,85 @@ func (conf *RedisConf) checkConf() {
 	}
 }
 
-// 日志打印Do args部分支持的最大长度
 type Redis struct {
-	pool   *redigo.Pool
-	logger *zlog.Logger
-	ctx    context.Context
-}
-
-func (r *Redis) WithContext(ctx context.Context) *Redis {
-	r.ctx = ctx
-	return r
+	redis.UniversalClient
 }
 
 func InitRedisClient(conf RedisConf) (*Redis, error) {
 	conf.checkConf()
-	p := &redigo.Pool{
-		MaxIdle:         conf.MaxIdle,
-		MaxActive:       conf.MaxActive,
-		IdleTimeout:     conf.IdleTimeout,
-		MaxConnLifetime: conf.MaxConnLifetime,
-		Wait:            true,
-		Dial: func() (conn redigo.Conn, e error) {
-			con, err := redigo.Dial(
-				"tcp",
-				conf.Addr,
-				redigo.DialPassword(conf.Password),
-				redigo.DialConnectTimeout(conf.ConnTimeOut),
-				redigo.DialReadTimeout(conf.ReadTimeOut),
-				redigo.DialWriteTimeout(conf.WriteTimeOut),
-				redigo.DialDatabase(conf.Db),
-			)
-			if err != nil {
-				return nil, err
-			}
-			return con, nil
-		},
-		TestOnBorrow: func(c redigo.Conn, t time.Time) error {
-			if time.Since(t) < time.Minute {
-				return nil
-			}
-			_, err := c.Do("PING")
-			return err
-		},
-	}
+	redisC := redis.NewUniversalClient(&redis.UniversalOptions{
+		Addrs:           []string{conf.Addr},
+		DB:              conf.Db,
+		Password:        conf.Password,
+		MinIdleConns:    conf.MaxIdle,
+		MaxActiveConns:  conf.MaxActive,
+		ConnMaxIdleTime: conf.IdleTimeout,
+		ConnMaxLifetime: conf.MaxConnLifetime,
+		ReadTimeout:     conf.ReadTimeOut,
+		DialTimeout:     conf.ConnTimeOut,
+		WriteTimeout:    conf.WriteTimeOut,
+	})
+
+	redisC.AddHook(newLogger())
 	c := &Redis{
-		pool:   p,
-		logger: newLogger().logger,
-		ctx:    context.Background(),
+		UniversalClient: redisC,
 	}
 	return c, nil
 }
 
-func (r *Redis) Do(commandName string, args ...interface{}) (reply interface{}, err error) {
-	start := time.Now()
-	conn := r.pool.Get()
-	if err := conn.Err(); err != nil {
-		r.logger.Error("get connection error: "+err.Error(), r.commonFields(r.ctx)...)
-		return reply, err
-	}
-	reply, err = conn.Do(commandName, args...)
-	if e := conn.Close(); e != nil {
-		r.logger.Warn("connection close error: "+e.Error(), r.commonFields(r.ctx)...)
-	}
-	// 执行时间 单位:毫秒
-	msg := "redis do success"
-	if err != nil {
-		// 超时不报错
-		if commandName != "BLPOP" && commandName != "BRPOP" && !strings.Contains(err.Error(), "i/o timeout") {
-			msg = "redis do error: " + err.Error()
-			r.logger.Error(msg, r.commonFields(r.ctx)...)
-		}
-	}
-	fields := append(r.commonFields(r.ctx),
-		zlog.String("command", commandName),
-		zlog.String("commandVal", joinArgs(500, args...)),
-	)
-	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
-	r.logger.Debug(msg, fields...)
-	return reply, err
+type redisLogger struct {
+	logger *zlog.Logger
 }
 
-func joinArgs(showByte int, args ...interface{}) string {
-	var sumLen int
-
-	argStr := make([]string, len(args))
-	for i, v := range args {
-		if s, ok := v.(string); ok {
-			argStr[i] = s
-		} else {
-			argStr[i] = fmt.Sprintf("%v", v)
+func (r *redisLogger) DialHook(hook redis.DialHook) redis.DialHook {
+	return func(ctx context.Context, network, addr string) (net.Conn, error) {
+		conn, err := hook(ctx, network, addr)
+		if err != nil {
+			r.logger.Error("get connection error: "+err.Error(), r.commonFields(ctx)...)
 		}
-
-		sumLen += len(argStr[i])
+		return conn, err
 	}
-
-	argVal := strings.Join(argStr, " ")
-	if sumLen > showByte {
-		argVal = argVal[:showByte] + " ..."
-	}
-	return argVal
 }
 
-func (r *Redis) commonFields(ctx context.Context) []zlog.Field {
+func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
+	return func(ctx context.Context, cmd redis.Cmder) error {
+		fields := append(r.commonFields(ctx),
+			zlog.String("command", cmd.String()),
+		)
+		msg := "redis do success"
+		start := time.Now()
+		err := hook(ctx, cmd)
+		if err != nil {
+			msg = err.Error()
+		}
+		fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
+		r.logger.Debug(msg, fields...)
+		return err
+	}
+}
+
+func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.ProcessPipelineHook {
+	return func(ctx context.Context, cmds []redis.Cmder) error {
+		cmdStrs := []string{}
+		for _, c := range cmds {
+			cmdStrs = append(cmdStrs, c.String())
+		}
+		fields := append(r.commonFields(ctx),
+			zlog.String("command", slice.Join(cmdStrs, ",")),
+		)
+		msg := "redis do success"
+		start := time.Now()
+		err := hook(ctx, cmds)
+		if err != nil {
+			msg = err.Error()
+		}
+		fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
+		r.logger.Debug(msg, fields...)
+		return err
+	}
+}
+
+func (r *redisLogger) commonFields(ctx context.Context) []zlog.Field {
 	var requestID string
 	if c, ok := ctx.(*gin.Context); ok && c != nil {
 		requestID, _ = ctx.Value(zlog.ContextKeyRequestID).(string)
@@ -178,20 +155,8 @@ func (r *Redis) commonFields(ctx context.Context) []zlog.Field {
 	}
 }
 
-func (r *Redis) Close() error {
-	return r.pool.Close()
-}
-
-func (r *Redis) Stats() (inUseCount, idleCount, activeCount int) {
-	stats := r.pool.Stats()
-	idleCount = stats.IdleCount
-	activeCount = stats.ActiveCount
-	inUseCount = activeCount - idleCount
-	return inUseCount, idleCount, activeCount
-}
-
-type redisLogger struct {
-	logger *zlog.Logger
+func (r *Redis) Clear() error {
+	return r.Close()
 }
 
 func newLogger() *redisLogger {
