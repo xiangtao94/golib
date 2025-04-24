@@ -143,7 +143,11 @@ func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
 	if maxReqBodyLen == -1 {
 		return reqBody
 	}
-
+	if c.Request.Method == "GET" {
+		allParams := c.Request.URL.Query()
+		reqBody = allParams.Encode()
+		return reqBody
+	}
 	// body中的参数
 	if c.Request.Body != nil && c.ContentType() == binding.MIMEMultipartPOSTForm {
 		requestBody, err := c.GetRawData()
@@ -164,9 +168,6 @@ func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
 		}
 		reqBody = *(*string)(unsafe.Pointer(&requestBody))
 		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-	} else if len(c.Request.URL.Query()) > 0 {
-		allParams := c.Request.URL.Query()
-		reqBody = allParams.Encode()
 	}
 	// 截断参数
 	if len(reqBody) > maxReqBodyLen {
