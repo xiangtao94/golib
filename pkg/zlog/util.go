@@ -17,6 +17,7 @@ const (
 	ContextKeyNoLog     = "_no_log"
 	ContextKeyUri       = "_uri"
 	zapLoggerAddr       = "_zap_addr"
+	zapAccessLoggerAddr = "_access_zap_addr"
 	sugaredLoggerAddr   = "_sugared_addr"
 	customerFieldKey    = "__customerFields"
 )

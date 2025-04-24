@@ -132,7 +132,7 @@ func zapAccessLogger(ctx *gin.Context) *zap.Logger {
 	if ctx == nil {
 		return m
 	}
-	if t, exist := ctx.Get(zapLoggerAddr); exist {
+	if t, exist := ctx.Get(zapAccessLoggerAddr); exist {
 		if l, ok := t.(*zap.Logger); ok {
 			return l
 		}
@@ -144,7 +144,7 @@ func zapAccessLogger(ctx *gin.Context) *zap.Logger {
 		zap.String("uri", GetRequestUri(ctx)),
 	)
 
-	ctx.Set(zapLoggerAddr, l)
+	ctx.Set(zapAccessLoggerAddr, l)
 	return l
 }
 
