@@ -82,8 +82,7 @@ func newLogger() *zap.Logger {
 	}
 	var zapCore []zapcore.Core
 	// 控制台输出
-	stdoutCore := zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel)
-	zapCore = append(zapCore, stdoutCore)
+	zapCore = append(zapCore, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
 	if logConfig.Log2File {
 		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
 		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
@@ -110,6 +109,10 @@ func newAccessLogger() *zap.Logger {
 		name = "server"
 	}
 	var zapCore []zapcore.Core
+	var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
+	})
+	zapCore = append(zapCore, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
 	zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
 	// core
 	core := zapcore.NewTee(zapCore...)
