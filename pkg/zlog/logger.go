@@ -48,8 +48,9 @@ var (
 	AddCallerSkip = zap.AddCallerSkip
 )
 var (
-	SugaredLogger *zap.SugaredLogger
-	ZapLogger     *zap.Logger
+	SugaredLogger   *zap.SugaredLogger
+	ZapLogger       *zap.Logger
+	ZapAccessLogger *zap.Logger
 )
 
 // log文件后缀类型
@@ -121,10 +122,10 @@ func newAccessLogger() *zap.Logger {
 }
 
 func GetAccessLogger() (l *zap.Logger) {
-	if ZapLogger == nil {
-		ZapLogger = newAccessLogger().WithOptions(zap.AddCallerSkip(1))
+	if ZapAccessLogger == nil {
+		ZapAccessLogger = newAccessLogger().WithOptions(zap.AddCallerSkip(1))
 	}
-	return ZapLogger
+	return ZapAccessLogger
 }
 
 func zapAccessLogger(ctx *gin.Context) *zap.Logger {
