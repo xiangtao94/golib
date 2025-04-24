@@ -127,13 +127,18 @@ func getEncoder() zapcore.Encoder {
 		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeCaller:   zapcore.ShortCallerEncoder, // 短路径编码器
-		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeLevel:    zapcore.CapitalColorLevelEncoder,
 		EncodeTime:     timeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 	}
-	jsonEncoder := zapcore.NewJSONEncoder(encoderCfg)
+	var encoder zapcore.Encoder
+	if logConfig.LogFormat == "json" {
+		encoder = zapcore.NewJSONEncoder(encoderCfg)
+	} else {
+		encoder = zapcore.NewConsoleEncoder(encoderCfg)
+	}
 	return &defaultEncoder{
-		Encoder: jsonEncoder,
+		Encoder: encoder,
 	}
 }
 

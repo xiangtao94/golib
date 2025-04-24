@@ -86,6 +86,7 @@ var logConfig = struct {
 	BufferSwitch        bool
 	BufferSize          int
 	BufferFlushInterval time.Duration
+	LogFormat           string
 }{
 	ZapLevel: zapcore.InfoLevel,
 
@@ -97,19 +98,12 @@ var logConfig = struct {
 	BufferSwitch:        true,
 	BufferSize:          256 * 1024, // 256kb
 	BufferFlushInterval: 5 * time.Second,
+	LogFormat:           "console",
 }
 
 func InitLog(conf LogConfig) *zap.SugaredLogger {
 	if conf.Format == "json" {
-		// 定制日志格式
-		if err := RegisterJSONEncoder(env.AppName); err != nil {
-			println("RegisterJSONEncoder: " + err.Error())
-		}
-	} else {
-		// 定制日志格式
-		if err := RegisterConsoleEncoder(env.AppName); err != nil {
-			println("RegisterConsoleEncoder: " + err.Error())
-		}
+		logConfig.LogFormat = "json"
 	}
 	logConfig.ModuleName = env.AppName
 	// 全局日志级别
@@ -121,24 +115,6 @@ func InitLog(conf LogConfig) *zap.SugaredLogger {
 	// 初始化全局logger
 	SugaredLogger = GetLogger()
 	return SugaredLogger
-}
-
-func RegisterJSONEncoder(moduleName string) error {
-	return zap.RegisterEncoder(moduleName, func(cfg zapcore.EncoderConfig) (zapcore.Encoder, error) {
-		jsonEncoder := zapcore.NewJSONEncoder(cfg)
-		return &defaultEncoder{
-			Encoder: jsonEncoder,
-		}, nil
-	})
-}
-func RegisterConsoleEncoder(moduleName string) error {
-	return zap.RegisterEncoder(moduleName, func(cfg zapcore.EncoderConfig) (zapcore.Encoder, error) {
-		cfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
-		jsonEncoder := zapcore.NewConsoleEncoder(cfg)
-		return &defaultEncoder{
-			Encoder: jsonEncoder,
-		}, nil
-	})
 }
 
 type defaultEncoder struct {
