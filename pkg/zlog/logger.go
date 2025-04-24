@@ -56,6 +56,7 @@ var (
 const (
 	txtLogNormal    = "normal"
 	txtLogWarnFatal = "warnfatal"
+	txtLogAccess    = "accesslog"
 	txtLogStdout    = "stdout"
 )
 
@@ -95,6 +96,60 @@ func newLogger() *zap.Logger {
 	logger := zap.New(core, filed, caller, development)
 
 	return logger
+}
+
+// NewLogger 新建Logger，每一次新建会同时创建x.log与x.log.wf (access.log 不会生成wf)
+func newAccessLogger() *zap.Logger {
+	var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
+	})
+	encoder := getEncoder()
+	name := logConfig.ModuleName
+	if name == "" {
+		name = "server"
+	}
+	var zapCore []zapcore.Core
+	zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
+	// core
+	core := zapcore.NewTee(zapCore...)
+	// 开启开发模式，堆栈跟踪
+	caller := zap.WithCaller(true)
+	development := zap.Development()
+	filed := zap.Fields()
+	logger := zap.New(core, filed, caller, development)
+	return logger
+}
+
+func GetAccessLogger() (l *zap.Logger) {
+	if ZapLogger == nil {
+		ZapLogger = newAccessLogger().WithOptions(zap.AddCallerSkip(1))
+	}
+	return ZapLogger
+}
+
+func zapAccessLogger(ctx *gin.Context) *zap.Logger {
+	m := GetAccessLogger()
+	if ctx == nil {
+		return m
+	}
+	if t, exist := ctx.Get(zapLoggerAddr); exist {
+		if l, ok := t.(*zap.Logger); ok {
+			return l
+		}
+	}
+
+	l := m.With(
+		zap.String("requestId", GetRequestID(ctx)),
+		zap.String("localIp", env.LocalIP),
+		zap.String("uri", GetRequestUri(ctx)),
+	)
+
+	ctx.Set(zapLoggerAddr, l)
+	return l
+}
+
+func AccessLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+	zapAccessLogger(ctx).Info(msg, fields...)
 }
 
 func getLogLevel(lv string) (level zapcore.Level) {
@@ -174,6 +229,8 @@ func appendLogFileTail(appName, loggerType string, pattern bool) string {
 		tailFixed = ".log"
 	case txtLogWarnFatal:
 		tailFixed = ".log.wf"
+	case txtLogAccess:
+		tailFixed = ".log.access"
 	default:
 		tailFixed = ".log"
 	}

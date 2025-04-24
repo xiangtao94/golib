@@ -102,8 +102,8 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 
 		// 固定notice
 		commonFields := []zlog.Field{
-			zlog.Int("status", c.Writer.Status()),
 			zlog.String("method", c.Request.Method),
+			zlog.Int("status", c.Writer.Status()),
 			zlog.String("clientIp", c.ClientIP()),
 			zlog.String("requestParam", reqParam),
 		}
@@ -133,7 +133,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		// 新的notice添加方式
 		customerFields := zlog.GetCustomerFields(c)
 		commonFields = append(commonFields, customerFields...)
-		zlog.InfoLogger(c, "accesslog", commonFields...)
+		zlog.AccessLogger(c, "accesslog", commonFields...)
 	}
 }
 
