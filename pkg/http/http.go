@@ -352,7 +352,7 @@ func (client *HttpClientConf) httpDo(ctx *gin.Context, req *http.Request, opts *
 	fields = append(fields, zlog.ByteString("reqParam", requestData))
 	fields = append(fields, zlog.ByteString("respBody", respData))
 	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
-	msg := "http request success"
+	msg := "http"
 	if err != nil {
 		msg = err.Error()
 	}

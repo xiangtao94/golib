@@ -2,9 +2,11 @@ package middleware
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
+	"mime"
 	"slices"
 	"strings"
 	"time"
@@ -97,21 +99,13 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		if conf.Skip != nil && conf.Skip(c) {
 			return
 		}
-		response := ""
-		if blw.body != nil && maxRespBodyLen != -1 {
-			response = blw.body.String()
-			if len(response) > maxRespBodyLen {
-				response = response[:maxRespBodyLen]
-			}
-		}
+
 		// 固定notice
 		commonFields := []zlog.Field{
+			zlog.Int("status", c.Writer.Status()),
 			zlog.String("method", c.Request.Method),
 			zlog.String("clientIp", c.ClientIP()),
 			zlog.String("requestParam", reqParam),
-			zlog.Int("responseStatus", c.Writer.Status()),
-			zlog.String("response", response),
-			zlog.Int("bodySize", c.Writer.Size()),
 		}
 		if len(conf.PrintHeaders) > 0 {
 			commonFields = append(commonFields, zlog.String("requestHeader", getHeader(c, conf.PrintHeaders)))
@@ -119,11 +113,27 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		if !conf.SkipCookie {
 			commonFields = append(commonFields, zlog.String("cookie", getCookie(c)))
 		}
+
+		contentType := c.Writer.Header().Get("Content-Type")
+		mediaType, _, err := mime.ParseMediaType(contentType)
+		if err != nil {
+			mediaType = ""
+		}
+		var response any
+		if blw.body != nil && maxRespBodyLen != -1 {
+			if strings.Contains(mediaType, "application/json") {
+				response = json.RawMessage{}
+				_ = json.Unmarshal(blw.body.Bytes(), &response)
+			} else if strings.Contains(mediaType, "text/event-stream") {
+				response = blw.body.String()
+			}
+		}
+		commonFields = append(commonFields, zlog.Any("responseBody", response), zlog.Int("bodySize", c.Writer.Size()))
 		commonFields = append(commonFields, zlog.AppendCostTime(start, time.Now())...)
 		// 新的notice添加方式
 		customerFields := zlog.GetCustomerFields(c)
 		commonFields = append(commonFields, customerFields...)
-		zlog.InfoLogger(c, "", commonFields...)
+		zlog.InfoLogger(c, "accesslog", commonFields...)
 	}
 }
 

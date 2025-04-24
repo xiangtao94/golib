@@ -127,7 +127,7 @@ func getEncoder() zapcore.Encoder {
 		StacktraceKey:  "stacktrace",
 		LineEnding:     zapcore.DefaultLineEnding,
 		EncodeCaller:   zapcore.ShortCallerEncoder, // 短路径编码器
-		EncodeLevel:    zapcore.CapitalColorLevelEncoder,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
 		EncodeTime:     timeEncoder,
 		EncodeDuration: zapcore.StringDurationEncoder,
 	}

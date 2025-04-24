@@ -112,7 +112,7 @@ func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 		fields := append(r.commonFields(ctx),
 			zlog.String("command", cmd.String()),
 		)
-		msg := "redis do success"
+		msg := "redis"
 		start := time.Now()
 		err := hook(ctx, cmd)
 		if err != nil {

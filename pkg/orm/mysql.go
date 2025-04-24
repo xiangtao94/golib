@@ -182,7 +182,7 @@ func (l *ormLogger) Error(ctx context.Context, msg string, data ...interface{}) 
 func (l *ormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
 	end := time.Now()
 	// 请求是否成功
-	msg := "success"
+	msg := "mysql"
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
 		// 没有找到记录不统计在请求错误中
 		msg = err.Error()
