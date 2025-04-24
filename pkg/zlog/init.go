@@ -23,6 +23,7 @@ type LogConfig struct {
 	Stdout    bool   `yaml:"stdout"`
 	Buffer    Buffer `yaml:"buffer"`
 	LogToFile bool   `yaml:"logToFile"`
+	Format    string `yaml:"format"`
 }
 
 func (conf LogConfig) SetLogLevel() {
@@ -99,9 +100,16 @@ var logConfig = struct {
 }
 
 func InitLog(conf LogConfig) *zap.SugaredLogger {
-	// 定制日志格式
-	if err := RegisterJSONEncoder(env.AppName); err != nil {
-		println("RegisterJSONEncoder: " + err.Error())
+	if conf.Format == "json" {
+		// 定制日志格式
+		if err := RegisterJSONEncoder(env.AppName); err != nil {
+			println("RegisterJSONEncoder: " + err.Error())
+		}
+	} else {
+		// 定制日志格式
+		if err := RegisterConsoleEncoder(env.AppName); err != nil {
+			println("RegisterConsoleEncoder: " + err.Error())
+		}
 	}
 	logConfig.ModuleName = env.AppName
 	// 全局日志级别
@@ -118,6 +126,15 @@ func InitLog(conf LogConfig) *zap.SugaredLogger {
 func RegisterJSONEncoder(moduleName string) error {
 	return zap.RegisterEncoder(moduleName, func(cfg zapcore.EncoderConfig) (zapcore.Encoder, error) {
 		jsonEncoder := zapcore.NewJSONEncoder(cfg)
+		return &defaultEncoder{
+			Encoder: jsonEncoder,
+		}, nil
+	})
+}
+func RegisterConsoleEncoder(moduleName string) error {
+	return zap.RegisterEncoder(moduleName, func(cfg zapcore.EncoderConfig) (zapcore.Encoder, error) {
+		cfg.EncodeLevel = zapcore.CapitalColorLevelEncoder
+		jsonEncoder := zapcore.NewConsoleEncoder(cfg)
 		return &defaultEncoder{
 			Encoder: jsonEncoder,
 		}, nil
