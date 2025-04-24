@@ -143,7 +143,7 @@ func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
 	if maxReqBodyLen == -1 {
 		return reqBody
 	}
-	if c.Request.Method == "GET" {
+	if c.Request.Method == "GET" || c.Request.Method == "DELETE" {
 		allParams := c.Request.URL.Query()
 		reqBody = allParams.Encode()
 		return reqBody
