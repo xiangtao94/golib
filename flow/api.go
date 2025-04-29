@@ -2,6 +2,7 @@ package flow
 
 import (
 	"encoding/json"
+	"fmt"
 	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/http"
 	"github.com/xiangtao94/golib/pkg/zlog"
@@ -129,6 +130,9 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions)
 }
 
 func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
+	if res.HttpCode > 200 {
+		return nil, fmt.Errorf("api response status code: %d, message: %s", res.HttpCode, string(res.Response))
+	}
 	apiRes := &ApiRes{}
 	if len(res.Response) > 0 {
 		e := json.Unmarshal(res.Response, &apiRes)
