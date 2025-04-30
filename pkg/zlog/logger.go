@@ -191,10 +191,10 @@ func getEncoder() zapcore.Encoder {
 		EncodeDuration: zapcore.StringDurationEncoder,
 	}
 	var encoder zapcore.Encoder
-	if logConfig.LogFormat == "json" {
-		encoder = zapcore.NewJSONEncoder(encoderCfg)
-	} else {
+	if logConfig.LogFormat == "console" {
 		encoder = zapcore.NewConsoleEncoder(encoderCfg)
+	} else {
+		encoder = zapcore.NewJSONEncoder(encoderCfg)
 	}
 	return &defaultEncoder{
 		Encoder: encoder,

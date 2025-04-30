@@ -98,7 +98,7 @@ var logConfig = struct {
 	BufferSwitch:        true,
 	BufferSize:          256 * 1024, // 256kb
 	BufferFlushInterval: 5 * time.Second,
-	LogFormat:           "console",
+	LogFormat:           "json",
 }
 
 func InitLog(conf LogConfig) *zap.SugaredLogger {
