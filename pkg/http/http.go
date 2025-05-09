@@ -396,12 +396,12 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 		if err != nil && err != io.EOF {
 			return err
 		}
+		if err == io.EOF {
+			break
+		}
 		errA := f(string(out))
 		if errA != nil {
 			return errA
-		}
-		if err == io.EOF {
-			break
 		}
 	}
 	drainAndCloseBody(resp, 16384)
