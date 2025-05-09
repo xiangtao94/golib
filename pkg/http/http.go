@@ -5,10 +5,8 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"github.com/bytedance/gopkg/util/gopool"
 	"github.com/gin-gonic/gin"
 	"github.com/pkg/errors"
-	"github.com/xiangtao94/golib/pkg/utils"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
 	"net"
@@ -391,32 +389,20 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 	if resp.StatusCode != http.StatusOK {
 		return errors.New(resp.Status)
 	}
-	scanner := bufio.NewScanner(resp.Body)
-	scanner.Split(bufio.ScanLines)
-
-	ticker := time.NewTicker(timeout)
-	defer ticker.Stop()
-
-	stopChan := make(chan bool)
-	defer close(stopChan)
-	gopool.Go(func() {
-		for scanner.Scan() {
-			ticker.Reset(timeout)
-			data := scanner.Text()
-			errA := f(data)
-			if errA != nil {
-				zlog.Errorf(ctx, "handler post stream data error: %v", errA)
-				break
-			}
+	br := bufio.NewReader(resp.Body)
+	for {
+		out, err := br.ReadBytes('\n')
+		// 读取错误，直接返回错误
+		if err != nil && err != io.EOF {
+			return err
 		}
-		utils.SafeSendBool(stopChan, true)
-	})
-	select {
-	case <-ticker.C:
-		// 超时处理逻辑
-		zlog.Errorf(ctx, "streaming timeout")
-	case <-stopChan:
-		// 正常结束
+		errA := f(string(out))
+		if errA != nil {
+			return errA
+		}
+		if err == io.EOF {
+			break
+		}
 	}
 	drainAndCloseBody(resp, 16384)
 	fields = append(fields,
