@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"github.com/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"go.uber.org/zap"
 	ormUtil "gorm.io/gorm/utils"
 	"time"
 
@@ -148,7 +147,7 @@ type ormLogger struct {
 
 func newLogger() *ormLogger {
 	return &ormLogger{
-		logger: zlog.GetZapLogger().WithOptions(zap.AddCallerSkip(-2)),
+		logger: zlog.GetOrmLogger(),
 	}
 }
 
