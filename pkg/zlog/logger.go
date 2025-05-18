@@ -427,7 +427,7 @@ func Panicf(ctx *gin.Context, format string, args ...interface{}) {
 
 func GetOrmLogger() (l *zap.Logger) {
 	if ZapOrmLogger == nil {
-		ZapOrmLogger = newLogger().WithOptions(zap.AddCallerSkip(2))
+		ZapOrmLogger = newLogger().WithOptions(zap.AddCallerSkip(3))
 	}
 	return ZapOrmLogger
 }
