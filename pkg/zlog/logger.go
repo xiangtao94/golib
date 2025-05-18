@@ -50,7 +50,6 @@ var (
 var (
 	SugaredLogger   *zap.SugaredLogger
 	ZapLogger       *zap.Logger
-	ZapOrmLogger    *zap.Logger
 	ZapAccessLogger *zap.Logger
 )
 
@@ -423,11 +422,4 @@ func Panicf(ctx *gin.Context, format string, args ...interface{}) {
 		return
 	}
 	sugaredLogger(ctx).Panicf(format, args...)
-}
-
-func GetOrmLogger() (l *zap.Logger) {
-	if ZapOrmLogger == nil {
-		ZapOrmLogger = newLogger().WithOptions(zap.AddCallerSkip(3))
-	}
-	return ZapOrmLogger
 }
