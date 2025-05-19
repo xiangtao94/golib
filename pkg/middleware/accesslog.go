@@ -44,7 +44,7 @@ func (w customRespWriter) Write(b []byte) (int, error) {
 type AccessLoggerConfig struct {
 	SkipPaths    []string `yaml:"skipPaths"`
 	PrintHeaders []string `yaml:"printHeaders"`
-	SkipCookie   bool     `yaml:"skipCookie"`
+	PrintCookie  bool     `yaml:"printCookie"`
 	// request body 最大长度展示，0表示采用默认的10240，-1表示不打印
 	MaxReqBodyLen int `yaml:"maxReqBodyLen"`
 	// response body 最大长度展示，0表示采用默认的10240，-1表示不打印。指定长度的时候需注意，返回的json可能被截断
@@ -110,10 +110,9 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		if len(conf.PrintHeaders) > 0 {
 			commonFields = append(commonFields, zlog.String("requestHeader", getHeader(c, conf.PrintHeaders)))
 		}
-		if !conf.SkipCookie {
+		if conf.PrintCookie {
 			commonFields = append(commonFields, zlog.String("cookie", getCookie(c)))
 		}
-
 		contentType := c.Writer.Header().Get("Content-Type")
 		mediaType, _, err := mime.ParseMediaType(contentType)
 		if err != nil {
