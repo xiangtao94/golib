@@ -34,9 +34,11 @@ func NewError(code int, messages map[string]string) Error {
 }
 
 func (err Error) Sprintf(v ...interface{}) Error {
-	for s, s2 := range err.Message {
-		err.Message[s] = fmt.Sprintf(s2, v...)
+	newMsg := make(map[string]string, len(err.Message))
+	for key, val := range err.Message {
+		newMsg[key] = fmt.Sprintf(val, v...)
 	}
+	err.Message = newMsg
 	return err
 }
 
