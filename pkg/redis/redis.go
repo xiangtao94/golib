@@ -161,7 +161,7 @@ func (r *Redis) Clear() error {
 
 func newLogger() *redisLogger {
 	return &redisLogger{
-		logger: zlog.GetZapLogger(),
+		logger: zlog.NewLoggerWithSkip(2),
 	}
 }
 

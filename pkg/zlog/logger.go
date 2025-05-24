@@ -1,16 +1,15 @@
 package zlog
 
 import (
-	"github.com/gin-gonic/gin"
 	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
-	"github.com/xiangtao94/golib/pkg/env"
+	"go.uber.org/zap"
+	"go.uber.org/zap/buffer"
+	"go.uber.org/zap/zapcore"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
-
-	"go.uber.org/zap"
-	"go.uber.org/zap/zapcore"
 )
 
 type (
@@ -44,14 +43,7 @@ var (
 	Duration      = zap.Duration
 	Object        = zap.Object
 	Any           = zap.Any
-	Skip          = zap.Skip()
 	AddCallerSkip = zap.AddCallerSkip
-)
-var (
-	SugaredLogger   *zap.SugaredLogger
-	ZapLogger       *zap.Logger
-	ZapOrmLogger    *zap.Logger
-	ZapAccessLogger *zap.Logger
 )
 
 // log文件后缀类型
@@ -59,121 +51,64 @@ const (
 	txtLogNormal    = "normal"
 	txtLogWarnFatal = "warnfatal"
 	txtLogAccess    = "accesslog"
-	txtLogStdout    = "stdout"
 )
 
-// NewLogger 新建Logger，每一次新建会同时创建x.log与x.log.wf (access.log 不会生成wf)
-func newLogger() *zap.Logger {
-	var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
-	})
+// 缓存基础 Zap core 和 Logger 实例
+var (
+	baseZapCore    zapcore.Core
+	baseAccessCore zapcore.Core
+	normalOnce     sync.Once
+	accessOnce     sync.Once
+)
 
-	var errorLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= logConfig.ZapLevel && lvl >= zapcore.WarnLevel
-	})
-
-	var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
-	})
-
+// buildZapCore 构造 zapcore.Core，支持普通日志和 Access 日志类型
+func buildZapCore(isAccess bool) zapcore.Core {
 	encoder := getEncoder()
 	name := logConfig.ModuleName
 	if name == "" {
 		name = "server"
 	}
-	var zapCore []zapcore.Core
-	// 控制台输出
-	zapCore = append(zapCore, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
-	if logConfig.Log2File {
-		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
-		zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
+	// 普通日志 core
+	if !isAccess {
+		normalOnce.Do(func() {
+			var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+				return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
+			})
+			var errorLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+				return lvl >= logConfig.ZapLevel && lvl >= zapcore.WarnLevel
+			})
+			var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+				return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
+			})
+
+			var cores []zapcore.Core
+			// 控制台输出
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
+			if logConfig.Log2File {
+				cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
+				cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
+			}
+			baseZapCore = zapcore.NewTee(cores...)
+		})
+		return baseZapCore
 	}
-	// core
-	core := zapcore.NewTee(zapCore...)
-	// 开启开发模式，堆栈跟踪
-	caller := zap.WithCaller(true)
-	development := zap.Development()
-	filed := zap.Fields()
-	logger := zap.New(core, filed, caller, development)
 
-	return logger
-}
+	// Access 日志 core
+	accessOnce.Do(func() {
+		var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+			return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
+		})
+		var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+			return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
+		})
 
-// NewLogger 新建Logger，每一次新建会同时创建x.log与x.log.wf (access.log 不会生成wf)
-func newAccessLogger() *zap.Logger {
-	var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
+		var cores []zapcore.Core
+		// 控制台输出
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
+		cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
+		baseAccessCore = zapcore.NewTee(cores...)
 	})
-	encoder := getEncoder()
-	name := logConfig.ModuleName
-	if name == "" {
-		name = "server"
-	}
-	var zapCore []zapcore.Core
-	var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
-	})
-	zapCore = append(zapCore, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
-	zapCore = append(zapCore, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
-	// core
-	core := zapcore.NewTee(zapCore...)
-	// 开启开发模式，堆栈跟踪
-	caller := zap.WithCaller(true)
-	development := zap.Development()
-	filed := zap.Fields()
-	logger := zap.New(core, filed, caller, development)
-	return logger
-}
-
-func GetAccessLogger() (l *zap.Logger) {
-	if ZapAccessLogger == nil {
-		ZapAccessLogger = newAccessLogger().WithOptions(zap.AddCallerSkip(1))
-	}
-	return ZapAccessLogger
-}
-
-func zapAccessLogger(ctx *gin.Context) *zap.Logger {
-	m := GetAccessLogger()
-	if ctx == nil {
-		return m
-	}
-	if t, exist := ctx.Get(zapAccessLoggerAddr); exist {
-		if l, ok := t.(*zap.Logger); ok {
-			return l
-		}
-	}
-
-	l := m.With(
-		zap.String("requestId", GetRequestID(ctx)),
-		zap.String("localIp", env.LocalIP),
-		zap.String("uri", GetRequestUri(ctx)),
-	)
-
-	ctx.Set(zapAccessLoggerAddr, l)
-	return l
-}
-
-func AccessLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	zapAccessLogger(ctx).Info(msg, fields...)
-}
-
-func getLogLevel(lv string) (level zapcore.Level) {
-	str := strings.ToUpper(lv)
-	switch str {
-	case "DEBUG":
-		level = zap.DebugLevel
-	case "INFO":
-		level = zap.InfoLevel
-	case "WARN":
-		level = zap.WarnLevel
-	case "ERROR":
-		level = zap.ErrorLevel
-	case "FATAL":
-		level = zap.FatalLevel
-	default:
-		level = zap.InfoLevel
-	}
-	return level
+	return baseAccessCore
 }
 
 func getEncoder() zapcore.Encoder {
@@ -200,6 +135,20 @@ func getEncoder() zapcore.Encoder {
 	return &defaultEncoder{
 		Encoder: encoder,
 	}
+}
+
+type defaultEncoder struct {
+	zapcore.Encoder
+}
+
+func (enc *defaultEncoder) Clone() zapcore.Encoder {
+	encoderClone := enc.Encoder.Clone()
+	return &defaultEncoder{Encoder: encoderClone}
+}
+
+func (enc *defaultEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
+	ent.Time = time.Now()
+	return enc.Encoder.EncodeEntry(ent, fields)
 }
 
 func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
@@ -243,191 +192,4 @@ func appendLogFileTail(appName, loggerType string, pattern bool) string {
 		return appName + "-%Y-%m-%d" + tailFixed
 	}
 	return appName + tailFixed
-}
-
-func CloseLogger() {
-	if SugaredLogger != nil {
-		_ = SugaredLogger.Sync()
-	}
-
-	if ZapLogger != nil {
-		_ = ZapLogger.Sync()
-	}
-}
-
-/*---------------zapLogger-------------------*/
-
-func GetZapLogger() (l *zap.Logger) {
-	if ZapLogger == nil {
-		ZapLogger = newLogger().WithOptions(zap.AddCallerSkip(1))
-	}
-	return ZapLogger
-}
-
-func zapLogger(ctx *gin.Context) *zap.Logger {
-	m := GetZapLogger()
-	if ctx == nil {
-		return m
-	}
-	if t, exist := ctx.Get(zapLoggerAddr); exist {
-		if l, ok := t.(*zap.Logger); ok {
-			return l
-		}
-	}
-
-	l := m.With(
-		zap.String("requestId", GetRequestID(ctx)),
-		zap.String("localIp", env.LocalIP),
-		zap.String("uri", GetRequestUri(ctx)),
-	)
-
-	ctx.Set(zapLoggerAddr, l)
-	return l
-}
-
-func DebugLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Debug(msg, fields...)
-}
-func InfoLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Info(msg, fields...)
-}
-
-func WarnLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Warn(msg, fields...)
-}
-
-func ErrorLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Error(msg, fields...)
-}
-
-func PanicLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Panic(msg, fields...)
-}
-
-func FatalLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
-	if noLog(ctx) {
-		return
-	}
-	zapLogger(ctx).Fatal(msg, fields...)
-}
-
-/*---------------sugar Logger-------------------*/
-
-func GetLogger() (s *zap.SugaredLogger) {
-	if SugaredLogger != nil {
-		return SugaredLogger
-	}
-	if ZapLogger != nil {
-		SugaredLogger = ZapLogger.Sugar()
-		return SugaredLogger
-	}
-	ZapLogger = GetZapLogger()
-	SugaredLogger = ZapLogger.Sugar()
-	return SugaredLogger
-}
-
-// 通用字段封装
-func sugaredLogger(ctx *gin.Context) *zap.SugaredLogger {
-	if ctx == nil {
-		return SugaredLogger
-	}
-
-	if t, exist := ctx.Get(sugaredLoggerAddr); exist {
-		if s, ok := t.(*zap.SugaredLogger); ok {
-			return s
-		}
-	}
-
-	s := SugaredLogger.With(
-		zap.String("localIp", env.LocalIP),
-		zap.String("uri", GetRequestUri(ctx)),
-		zap.String("requestId", GetRequestID(ctx)),
-	)
-	ctx.Set(sugaredLoggerAddr, s)
-	return s
-}
-
-func Debugf(ctx *gin.Context, format string, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Debugf(format, args...)
-}
-
-func Info(ctx *gin.Context, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Info(args...)
-}
-
-func Infof(ctx *gin.Context, format string, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Infof(format, args...)
-}
-
-func Warn(ctx *gin.Context, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Warn(args...)
-}
-
-func Warnf(ctx *gin.Context, format string, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Warnf(format, args...)
-}
-
-func Error(ctx *gin.Context, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Error(args...)
-}
-
-func Errorf(ctx *gin.Context, format string, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Errorf(format, args...)
-}
-
-func Panic(ctx *gin.Context, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Panic(args...)
-}
-
-func Panicf(ctx *gin.Context, format string, args ...interface{}) {
-	if noLog(ctx) {
-		return
-	}
-	sugaredLogger(ctx).Panicf(format, args...)
-}
-
-func GetOrmLogger() (l *zap.Logger) {
-	if ZapOrmLogger == nil {
-		ZapOrmLogger = newLogger().WithOptions(zap.AddCallerSkip(3))
-	}
-	return ZapOrmLogger
 }

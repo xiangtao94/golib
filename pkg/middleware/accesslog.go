@@ -132,7 +132,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		// 新的notice添加方式
 		customerFields := zlog.GetCustomerFields(c)
 		commonFields = append(commonFields, customerFields...)
-		zlog.AccessLogger(c, "accesslog", commonFields...)
+		zlog.AccessInfo(c, commonFields...)
 	}
 }
 

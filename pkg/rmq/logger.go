@@ -18,7 +18,7 @@ func initLogger() {
 		return
 	}
 
-	logger = zlog.ZapLogger.WithOptions(zlog.AddCallerSkip(-1))
+	logger = zlog.NewLoggerWithSkip(-1)
 
 	rlog.SetLogger(&rlogger{})
 }

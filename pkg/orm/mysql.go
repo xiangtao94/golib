@@ -147,7 +147,7 @@ type ormLogger struct {
 
 func newLogger() *ormLogger {
 	return &ormLogger{
-		logger: zlog.GetOrmLogger(),
+		logger: zlog.NewLoggerWithSkip(3),
 	}
 }
 

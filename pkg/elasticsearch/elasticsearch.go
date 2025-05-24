@@ -214,7 +214,7 @@ func (e *elasticLogger) ResponseBodyEnabled() bool {
 
 func newLogger() *elasticLogger {
 	return &elasticLogger{
-		logger: zlog.GetZapLogger(),
+		logger: zlog.NewLoggerWithSkip(2),
 	}
 }
 

@@ -3,8 +3,8 @@ package zlog
 import (
 	"fmt"
 	"github.com/xiangtao94/golib/pkg/env"
-	"go.uber.org/zap/buffer"
 	"os"
+	"strings"
 	"time"
 
 	"go.uber.org/zap"
@@ -24,10 +24,30 @@ type LogConfig struct {
 	Buffer    Buffer `yaml:"buffer"`
 	LogToFile bool   `yaml:"logToFile"`
 	Format    string `yaml:"format"`
+	LogDir    string `yaml:"logDir"`
 }
 
 func (conf LogConfig) SetLogLevel() {
 	logConfig.ZapLevel = getLogLevel(conf.Level)
+}
+
+func getLogLevel(lv string) (level zapcore.Level) {
+	str := strings.ToUpper(lv)
+	switch str {
+	case "DEBUG":
+		level = zap.DebugLevel
+	case "INFO":
+		level = zap.InfoLevel
+	case "WARN":
+		level = zap.WarnLevel
+	case "ERROR":
+		level = zap.ErrorLevel
+	case "FATAL":
+		level = zap.FatalLevel
+	default:
+		level = zap.InfoLevel
+	}
+	return level
 }
 
 func (conf LogConfig) SetBuffer() {
@@ -102,9 +122,6 @@ var logConfig = struct {
 }
 
 func InitLog(conf LogConfig) *zap.SugaredLogger {
-	if conf.Format == "json" {
-		logConfig.LogFormat = "json"
-	}
 	logConfig.ModuleName = env.AppName
 	// 全局日志级别
 	conf.SetLogLevel()
@@ -113,20 +130,24 @@ func InitLog(conf LogConfig) *zap.SugaredLogger {
 	// 日志输出方式
 	conf.SetLogOutput()
 	// 初始化全局logger
-	SugaredLogger = GetLogger()
-	return SugaredLogger
+	globalLogger = GetGlobalLogger()
+	Info(nil, "Logger initialized")
+	return globalLogger
 }
 
-type defaultEncoder struct {
-	zapcore.Encoder
-}
-
-func (enc *defaultEncoder) Clone() zapcore.Encoder {
-	encoderClone := enc.Encoder.Clone()
-	return &defaultEncoder{Encoder: encoderClone}
-}
-
-func (enc *defaultEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field) (*buffer.Buffer, error) {
-	ent.Time = time.Now()
-	return enc.Encoder.EncodeEntry(ent, fields)
+func CloseLogger() {
+	if globalLogger != nil {
+		_ = globalLogger.Sync()
+	}
+	// 同步缓存的 Logger
+	zapCacheLock.Lock()
+	for _, logger := range zapLoggerCache {
+		if logger != nil {
+			_ = logger.Sync()
+		}
+	}
+	zapCacheLock.Unlock()
+	if accessLogger != nil {
+		_ = accessLogger.Sync()
+	}
 }

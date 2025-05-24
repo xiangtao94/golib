@@ -73,7 +73,7 @@ func (c *Cycle) run(e *Entry) {
 }
 
 func (c *Cycle) runWithRecovery(entry *Entry) {
-	ctx, _ := gin.CreateTestContext(nil)
+	ctx := gin.CreateTestContextOnly(nil, c.gin)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -88,7 +88,7 @@ func (c *Cycle) runWithRecovery(entry *Entry) {
 			var body strings.Builder
 			body.WriteString(`{"level":"ERROR","time":"`)
 			body.WriteString(time.Now().Format("2006-01-02 15:04:05.999999"))
-			body.WriteString(`","file":"gin/cycle/cycle.go:94","msg":"`)
+			body.WriteString(`","file":"pkg/job/cycle/cycle.go:94","msg":"`)
 			body.WriteString(fmt.Sprintf("%+v", r))
 			body.WriteString(`","handle":"`)
 			body.WriteString(handleName)

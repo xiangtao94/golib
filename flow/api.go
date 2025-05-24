@@ -21,14 +21,14 @@ type IApi interface {
 	GetEncodeType() string
 	ApiGet(path string, requestParam interface{}) (*ApiRes, error)
 	ApiPost(path string, requestBody interface{}) (*ApiRes, error)
-	ApiGetWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error)
-	ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error)
+	ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
+	ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
 }
 
 type Api struct {
 	Layer
 	EncodeType string
-	Client     *http.HttpClientConf
+	Client     *http.ClientConf
 }
 
 // api请求数据格式，默认json
@@ -39,8 +39,8 @@ func (entity *Api) GetEncodeType() string {
 	return http.EncodeJson
 }
 
-func (entity *Api) ApiGet(path string, requestParam interface{}) (*ApiRes, error) {
-	reqOpts := http.HttpRequestOptions{
+func (entity *Api) ApiGet(path string, requestParam map[string]interface{}) (*ApiRes, error) {
+	reqOpts := http.RequestOptions{
 		RequestBody: requestParam,
 		Encode:      http.EncodeForm,
 	}
@@ -48,7 +48,7 @@ func (entity *Api) ApiGet(path string, requestParam interface{}) (*ApiRes, error
 }
 
 func (entity *Api) ApiDelete(path string, requestParam interface{}) (*ApiRes, error) {
-	reqOpts := http.HttpRequestOptions{
+	reqOpts := http.RequestOptions{
 		RequestBody: requestParam,
 		Encode:      http.EncodeForm,
 	}
@@ -57,7 +57,7 @@ func (entity *Api) ApiDelete(path string, requestParam interface{}) (*ApiRes, er
 
 func (entity *Api) ApiPut(path string, requestBody interface{}) (*ApiRes, error) {
 	api2 := entity.GetEntity().(IApi)
-	reqOpts := http.HttpRequestOptions{
+	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      api2.GetEncodeType(),
 	}
@@ -66,40 +66,42 @@ func (entity *Api) ApiPut(path string, requestBody interface{}) (*ApiRes, error)
 
 func (entity *Api) ApiPost(path string, requestBody interface{}) (*ApiRes, error) {
 	api2 := entity.GetEntity().(IApi)
-	reqOpts := http.HttpRequestOptions{
+	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      api2.GetEncodeType(),
 	}
 	return entity.ApiPostWithOpts(path, reqOpts)
 }
 
-func (entity *Api) ApiGetWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error) {
-	//GET请求写死为form
-	reqOpts.Encode = http.EncodeForm
+func (entity *Api) ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(entity.GetCtx(), "ApiGetWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
-	res, e := entity.Client.HttpGet(entity.GetCtx(), path, reqOpts)
+	//GET请求写死为form
+	reqOpts.Encode = http.EncodeForm
+	reqOpts.Path = path
+	res, e := entity.Client.Get(entity.GetCtx(), reqOpts)
 	if e != nil {
 		return nil, e
 	}
 	return entity.handel(path, res)
 }
 
-func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(entity.GetCtx(), "ApiDeleteWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
-	res, e := entity.Client.HttpDelete(entity.GetCtx(), path, reqOpts)
+	reqOpts.Path = path
+	res, e := entity.Client.Delete(entity.GetCtx(), reqOpts)
 	if e != nil {
 		return nil, e
 	}
 	return entity.handel(path, res)
 }
 
-func (entity *Api) ApiPutWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiPutWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(entity.GetCtx(), "ApiPutWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -107,14 +109,15 @@ func (entity *Api) ApiPutWithOpts(path string, reqOpts http.HttpRequestOptions) 
 	if reqOpts.Encode == "" {
 		reqOpts.Encode = entity.GetEncodeType()
 	}
-	res, err := entity.Client.HttpPut(entity.GetCtx(), path, reqOpts)
+	reqOpts.Path = path
+	res, err := entity.Client.Put(entity.GetCtx(), reqOpts)
 	if err != nil {
 		return nil, err
 	}
 	return entity.handel(path, res)
 }
 
-func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(entity.GetCtx(), "ApiPostWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -122,14 +125,15 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.HttpRequestOptions)
 	if reqOpts.Encode == "" {
 		reqOpts.Encode = entity.GetEncodeType()
 	}
-	res, err := entity.Client.HttpPost(entity.GetCtx(), path, reqOpts)
+	reqOpts.Path = path
+	res, err := entity.Client.Post(entity.GetCtx(), reqOpts)
 	if err != nil {
 		return nil, err
 	}
 	return entity.handel(path, res)
 }
 
-func (entity *Api) handel(path string, res *http.HttpResult) (*ApiRes, error) {
+func (entity *Api) handel(path string, res *http.Result) (*ApiRes, error) {
 	if res.HttpCode > 200 {
 		return nil, fmt.Errorf("api response status code: %d, message: %s", res.HttpCode, string(res.Response))
 	}

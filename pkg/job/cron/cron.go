@@ -181,7 +181,7 @@ func (c *Cron) Run() {
 
 func (c *Cron) runWithRecovery(e *Entry) {
 
-	ctx, _ := gin.CreateTestContext(nil)
+	ctx := gin.CreateTestContextOnly(nil, c.gin)
 
 	defer func() {
 		if r := recover(); r != nil {
@@ -196,7 +196,7 @@ func (c *Cron) runWithRecovery(e *Entry) {
 			var body strings.Builder
 			body.WriteString(`{"level":"ERROR","time":"`)
 			body.WriteString(time.Now().Format("2006-01-02 15:04:05.999999"))
-			body.WriteString(`","file":"gin/cron/cron.go:212","msg":"`)
+			body.WriteString(`","file":"pkg/job/cron/cron.go:212","msg":"`)
 			body.WriteString(fmt.Sprintf("%+v", r))
 			body.WriteString(`","handle":"`)
 			body.WriteString(handleName)
