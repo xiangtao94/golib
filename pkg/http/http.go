@@ -412,9 +412,6 @@ func (client *HttpClientConf) DoStream(ctx *gin.Context, req *http.Request, opts
 	fields = append(fields, zlog.ByteString("reqParam", requestData))
 	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
 	msg := "http request success"
-	if doErr != nil {
-		msg = err.Error()
-	}
 	zlog.InfoLogger(ctx, msg, fields...)
 	return err
 }
