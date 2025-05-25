@@ -243,7 +243,11 @@ func (c *ClientConf) logHttpInvoke(ctx *gin.Context, req *resty.Request, res *Re
 	}
 	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
 	logger := zlog.LoggerWithContext(GetHttpLogger(), ctx)
-	logger.Info(msg, fields...)
+	if err != nil {
+		logger.Error(msg, fields...)
+	} else {
+		logger.Info(msg, fields...)
+	}
 }
 
 func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptions, f func(data []byte) error) (res *Result, err error) {
@@ -269,8 +273,9 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 	if err != nil {
 		return nil, err
 	}
-	if resp != nil && !resp.IsSuccess() {
-		return nil, errors.New(resp.String())
+	if !resp.IsError() {
+		_ = resp.Body.Close()
+		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), resp.String())
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, slices.Min([]int{4096, defaultSseMaxBufSize})), defaultSseMaxBufSize)
