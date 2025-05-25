@@ -19,7 +19,7 @@ type ApiRes struct {
 type IApi interface {
 	ILayer
 	GetEncodeType() string
-	ApiGet(path string, requestParam interface{}) (*ApiRes, error)
+	ApiGet(path string, requestParam map[string]interface{}) (*ApiRes, error)
 	ApiPost(path string, requestBody interface{}) (*ApiRes, error)
 	ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
 	ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
