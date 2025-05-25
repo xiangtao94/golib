@@ -1,8 +1,8 @@
 package flow
 
 import (
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
 	errors2 "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"gorm.io/gorm"

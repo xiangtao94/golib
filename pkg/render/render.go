@@ -8,10 +8,10 @@ package render
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
-	"github.com/pkg/errors"
 	errors2 "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
@@ -127,12 +127,14 @@ func RenderJsonSucc(ctx *gin.Context, data interface{}) {
 func RenderJsonFail(ctx *gin.Context, err error) {
 	r := newJsonRender()
 
-	code, msg := 500, errors.Cause(err).Error()
-	switch errors.Cause(err).(type) {
-	case errors2.Error:
-		code = errors.Cause(err).(errors2.Error).Code
-		msg = errors.Cause(err).(errors2.Error).GetMessage(ctx)
-	default:
+	code := 500
+	msg := err.Error()
+
+	var e2 errors2.Error
+	if errors.As(err, &e2) {
+		code = e2.Code
+		msg = e2.GetMessage(ctx)
+	} else {
 		code = errors2.ErrorSystemError.Code
 		msg = errors2.ErrorSystemError.GetMessage(ctx)
 	}
@@ -144,11 +146,10 @@ func RenderJsonFail(ctx *gin.Context, err error) {
 	setCommonHeader(ctx, code, msg)
 	ctx.JSON(http.StatusOK, r)
 
-	// 打印错误栈
+	// 打印错误栈（标准库没有自动栈，需要你在生成错误时自己加）
 	StackLogger(ctx, err)
 	return
 }
-
 func RenderStream(ctx *gin.Context, id, event string, data interface{}) {
 	flusher, _ := ctx.Writer.(http.Flusher)
 	sse.Encode(ctx.Writer, sse.Event{

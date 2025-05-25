@@ -2,8 +2,8 @@ package orm
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"github.com/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	ormUtil "gorm.io/gorm/utils"
 	"time"
