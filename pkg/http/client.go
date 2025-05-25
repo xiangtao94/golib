@@ -272,7 +272,7 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 	if err != nil {
 		return nil, err
 	}
-	if !resp.IsError() {
+	if resp.IsError() {
 		_ = resp.Body.Close()
 		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), resp.String())
 	}
