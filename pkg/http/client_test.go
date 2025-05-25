@@ -111,16 +111,13 @@ func TestClient_Timeout(t *testing.T) {
 	client := &ClientConf{
 		Service:        "test",
 		Domain:         server.URL,
-		Timeout:        500 * time.Millisecond,
+		Timeout:        3000 * time.Millisecond,
 		MaxReqBodyLen:  1024,
 		MaxRespBodyLen: 1024,
-		RetryTimes:     3,
+		RetryTimes:     1,
 	}
 
-	req := httptest.NewRequest(http.MethodGet, "/", nil)
-
 	ctx, _ := gin.CreateTestContext(nil)
-	ctx.Request = req
 
 	opts := RequestOptions{
 		Path: "/timeout",

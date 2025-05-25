@@ -342,13 +342,13 @@ func (c *ClientConf) buildRequest(ctx *gin.Context, method string, opts RequestO
 	if err != nil {
 		return nil, err
 	}
-	// 支持单次请求自定义超时：通过传递 context 实现
-	timeout := c.Timeout
+	var reqCtx context.Context
+
 	if opts.Timeout > 0 {
-		timeout = opts.Timeout
+		var cancel context.CancelFunc
+		reqCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
 	}
-	reqCtx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
 	req.SetContext(reqCtx)
 	return req, nil
 }
