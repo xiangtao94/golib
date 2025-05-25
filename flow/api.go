@@ -19,7 +19,7 @@ type ApiRes struct {
 type IApi interface {
 	ILayer
 	GetEncodeType() string
-	ApiGet(path string, requestParam map[string]interface{}) (*ApiRes, error)
+	ApiGet(path string, requestParam map[string]string) (*ApiRes, error)
 	ApiPost(path string, requestBody interface{}) (*ApiRes, error)
 	ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
 	ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
@@ -39,10 +39,9 @@ func (entity *Api) GetEncodeType() string {
 	return http.EncodeJson
 }
 
-func (entity *Api) ApiGet(path string, requestParam map[string]interface{}) (*ApiRes, error) {
+func (entity *Api) ApiGet(path string, requestParam map[string]string) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
-		RequestBody: requestParam,
-		Encode:      http.EncodeForm,
+		QueryParams: requestParam,
 	}
 	return entity.ApiGetWithOpts(path, reqOpts)
 }
@@ -78,8 +77,6 @@ func (entity *Api) ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*Ap
 		zlog.Errorf(entity.GetCtx(), "ApiGetWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
-	//GET请求写死为form
-	reqOpts.Encode = http.EncodeForm
 	reqOpts.Path = path
 	res, e := entity.Client.Get(entity.GetCtx(), reqOpts)
 	if e != nil {
