@@ -186,11 +186,21 @@ func (c *ClientConf) Delete(ctx *gin.Context, opts RequestOptions) (*Result, err
 
 // do 执行通用请求方法
 func (c *ClientConf) do(ctx *gin.Context, method string, opts RequestOptions) (res *Result, err error) {
+	var timeoutCtx context.Context
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		timeoutCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	} else {
+		timeoutCtx = ctx
+	}
 	// 记录开始时间
 	req, err := c.buildRequest(ctx, method, opts)
 	if err != nil {
 		return nil, err
 	}
+	req.WithContext(timeoutCtx)
+
 	start := time.Now()
 	defer func() { // 不能省略这个闭包函数， 否则req和err传入不进去
 		c.logHttpInvoke(ctx, req, res, err, start, opts)
@@ -237,11 +247,19 @@ func (c *ClientConf) logHttpInvoke(ctx *gin.Context, req *resty.Request, res *Re
 }
 
 func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptions, f func(data []byte) error) (res *Result, err error) {
-	// 记录开始时间
+	var timeoutCtx context.Context
+	if opts.Timeout > 0 {
+		var cancel context.CancelFunc
+		timeoutCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
+		defer cancel()
+	} else {
+		timeoutCtx = ctx
+	}
 	req, err := c.buildRequest(ctx, method, opts)
 	if err != nil {
 		return nil, err
 	}
+	req.WithContext(timeoutCtx)
 	start := time.Now()
 	defer func() { // 不能省略这个闭包函数， 否则req和err传入不进去
 		c.logHttpInvoke(ctx, req, res, err, start, opts)
@@ -250,6 +268,9 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 	resp, err := req.SetDoNotParseResponse(true).Send()
 	if err != nil {
 		return nil, err
+	}
+	if resp != nil && !resp.IsSuccess() {
+		return nil, errors.New(resp.String())
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, slices.Min([]int{4096, defaultSseMaxBufSize})), defaultSseMaxBufSize)
@@ -342,14 +363,6 @@ func (c *ClientConf) buildRequest(ctx *gin.Context, method string, opts RequestO
 	if err != nil {
 		return nil, err
 	}
-	var reqCtx context.Context
-
-	if opts.Timeout > 0 {
-		var cancel context.CancelFunc
-		reqCtx, cancel = context.WithTimeout(ctx, opts.Timeout)
-		defer cancel()
-	}
-	req.SetContext(reqCtx)
 	return req, nil
 }
 
