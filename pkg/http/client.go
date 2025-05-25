@@ -109,6 +109,12 @@ func (c *ClientConf) initClient() error {
 		if c.RetryMaxWaitTime == 0 {
 			c.RetryMaxWaitTime = 2 * time.Second // 默认最大重试等待时间
 		}
+		if c.MaxReqBodyLen == 0 {
+			c.MaxReqBodyLen = 10240
+		}
+		if c.MaxRespBodyLen == 0 {
+			c.MaxRespBodyLen = 10240
+		}
 		client := resty.New()
 		client.SetTimeout(c.Timeout)
 		client.SetRetryCount(c.RetryTimes)
