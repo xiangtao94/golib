@@ -25,7 +25,7 @@ const (
 	EncodeRaw            = "_raw"
 	EncodeRawByte        = "_raw_byte"
 	EncodeFile           = "_file"
-	defaultSseMaxBufSize = 500 * 1024 * 1024 // 500MB
+	defaultSseMaxBufSize = 100 * 1024 * 1024 // 500MB
 )
 
 // ClientConf 是 HTTP 客户端配置，包括基础 URL、重试策略等。
