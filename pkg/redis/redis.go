@@ -2,11 +2,13 @@ package redis
 
 import (
 	"context"
+	"fmt"
 	"github.com/duke-git/lancet/v2/slice"
 	"github.com/redis/go-redis/v9"
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -40,30 +42,33 @@ type RedisConf struct {
 	ConnTimeOut     time.Duration `yaml:"connTimeOut"`
 	ReadTimeOut     time.Duration `yaml:"readTimeOut"`
 	WriteTimeOut    time.Duration `yaml:"writeTimeOut"`
+	MaxRetries      int           `yaml:"maxRetries"`
 }
 
 func (conf *RedisConf) checkConf() {
-
-	if conf.MaxIdle == 0 {
-		conf.MaxIdle = 50
+	if conf.MaxIdle <= 0 {
+		conf.MaxIdle = 10
 	}
-	if conf.MaxActive == 0 {
-		conf.MaxActive = 100
+	if conf.MaxActive <= 0 {
+		conf.MaxActive = 50
 	}
-	if conf.IdleTimeout == 0 {
-		conf.IdleTimeout = 30 * time.Minute
+	if conf.IdleTimeout <= 0 {
+		conf.IdleTimeout = 5 * time.Minute
 	}
-	if conf.MaxConnLifetime == 0 {
-		conf.MaxConnLifetime = 10 * time.Minute
+	if conf.MaxConnLifetime <= 0 {
+		conf.MaxConnLifetime = 30 * time.Minute
 	}
-	if conf.ConnTimeOut == 0 {
+	if conf.ConnTimeOut <= 0 {
 		conf.ConnTimeOut = 3 * time.Second
 	}
-	if conf.ReadTimeOut == 0 {
-		conf.ReadTimeOut = 1200 * time.Millisecond
+	if conf.ReadTimeOut <= 0 {
+		conf.ReadTimeOut = 2 * time.Second
 	}
-	if conf.WriteTimeOut == 0 {
-		conf.WriteTimeOut = 1200 * time.Millisecond
+	if conf.WriteTimeOut <= 0 {
+		conf.WriteTimeOut = 2 * time.Second
+	}
+	if conf.MaxRetries < 0 {
+		conf.MaxRetries = 3
 	}
 }
 
@@ -73,24 +78,32 @@ type Redis struct {
 
 func InitRedisClient(conf RedisConf) (*Redis, error) {
 	conf.checkConf()
-	redisC := redis.NewUniversalClient(&redis.UniversalOptions{
-		Addrs:           []string{conf.Addr},
+
+	opts := &redis.UniversalOptions{
+		Addrs:           strings.Split(conf.Addr, ","),
 		DB:              conf.Db,
 		Password:        conf.Password,
 		MinIdleConns:    conf.MaxIdle,
-		MaxActiveConns:  conf.MaxActive,
+		PoolSize:        conf.MaxActive,
 		ConnMaxIdleTime: conf.IdleTimeout,
 		ConnMaxLifetime: conf.MaxConnLifetime,
 		ReadTimeout:     conf.ReadTimeOut,
 		DialTimeout:     conf.ConnTimeOut,
 		WriteTimeout:    conf.WriteTimeOut,
-	})
-
-	redisC.AddHook(newLogger())
-	c := &Redis{
-		UniversalClient: redisC,
+		MaxRetries:      conf.MaxRetries,
 	}
-	return c, nil
+
+	rdb := redis.NewUniversalClient(opts)
+	rdb.AddHook(newLogger())
+
+	// Ping 测试
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		return nil, fmt.Errorf("redis ping error: %w", err)
+	}
+
+	return &Redis{UniversalClient: rdb}, nil
 }
 
 type redisLogger struct {

@@ -106,13 +106,11 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 		conf.DataBase,
 		conf.ConnTimeOut,
 		conf.ReadTimeOut,
-		conf.WriteTimeOut)
-	dsnArr := []string{}
-	dsnArr = append(dsnArr, dsn)
+		conf.WriteTimeOut,
+	)
 	if conf.Charset != "" {
-		dsn = dsn + "&charset=" + conf.Charset
+		dsn += "&charset=" + conf.Charset
 	}
-
 	l := newLogger()
 	_ = driver.SetLogger(l)
 	c := &gorm.Config{
