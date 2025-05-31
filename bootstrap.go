@@ -17,36 +17,60 @@ import (
 	_ "net/http/pprof"
 )
 
-type IBootstrapConf interface {
-	// 获取app名称
-	GetAppName() string
-	// 国际化
-	GetLang() string
-	// app启动端口
-	GetPort() int
-	// 通用日志配置
-	GetZlogConf() zlog.LogConfig
-	// accessLog配置
-	GetAccessLogConf() middleware.AccessLoggerConfig
-	// 异常捕获方法
-	GetHandleRecoveryFunc() gin.RecoveryFunc
+type BootstrapOption func(engine *gin.Engine)
+
+// 1. 应用名称
+func WithAppName(appName string) BootstrapOption {
+	return func(engine *gin.Engine) {
+		env.SetAppName(appName)
+	}
 }
 
-func Bootstraps(engine *gin.Engine, conf IBootstrapConf) {
-	// appName设置
-	env.SetAppName(conf.GetAppName())
-	// 国际化设置
-	env.SetLanguage(conf.GetLang())
-	// 日志初始化
-	zlog.InitLog(conf.GetZlogConf())
-	// 通用prometheus指标采集接口
-	middleware.RegistryMetrics(engine)
-	// 全局access中间键日志
-	middleware.RegistryAccessLog(engine, conf.GetAccessLogConf())
-	// 异常Recovery中间键
-	middleware.RegistryRecovery(engine, conf.GetHandleRecoveryFunc())
-	// 添加swagger
-	engine.GET("/swagger/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
-	// 添加pprof
+// 2. 国际化环境
+func WithLang(lang string) BootstrapOption {
+	return func(engine *gin.Engine) {
+		env.SetLanguage(lang)
+	}
+}
+
+// 3. 日志
+func WithZlog(conf zlog.LogConfig) BootstrapOption {
+	return func(engine *gin.Engine) {
+		zlog.InitLog(conf)
+	}
+}
+
+// 4. Access Log
+func WithAccessLog(conf middleware.AccessLoggerConfig) BootstrapOption {
+	return func(engine *gin.Engine) {
+		middleware.RegistryAccessLog(engine, conf)
+	}
+}
+
+// 5. Recovery
+func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
+	return func(engine *gin.Engine) {
+		middleware.RegistryRecovery(engine, handler)
+	}
+}
+
+// 6. Swagger
+func WithSwagger(urlPrefix string) BootstrapOption {
+	return func(engine *gin.Engine) {
+		if urlPrefix == "" {
+			urlPrefix = "/swagger"
+		}
+		engine.GET(urlPrefix+"/*any", ginSwagger.WrapHandler(swaggerfiles.Handler))
+	}
+}
+
+func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
+	// 统一添加pprof
 	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
+	// 统一的Prometheus注册
+	middleware.RegistryMetrics(engine)
+	// 依次执行传入的可选项
+	for _, opt := range opts {
+		opt(engine)
+	}
 }

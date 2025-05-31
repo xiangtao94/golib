@@ -23,77 +23,85 @@ type Controller struct {
 	Layer
 }
 
-func (entity *Controller) Action(req *any) (any, error) {
-	//TODO implement me
+// 默认实现，建议具体业务Controller重写
+func (c *Controller) Action(req *any) (any, error) {
 	panic("implement me")
 }
 
-// 手动设置requestId
-func (entity *Controller) SetTrace(traceId string) {
+// 手动设置traceId
+func (c *Controller) SetTrace(traceId string) {
 	if traceId == "" {
-		zlog.Warnf(entity.ctx, "[controller] set trace failed, traceId is empty")
+		zlog.Warnf(c.ctx, "[controller] set trace failed, traceId is empty")
 		return
 	}
-	entity.GetCtx().Set(zlog.ContextKeyRequestID, traceId)
+	c.GetCtx().Set(zlog.ContextKeyRequestID, traceId)
 }
 
-// 默认Form
-func (entity *Controller) RequestBind() binding.Binding {
+// 默认使用 Form 绑定
+func (c *Controller) RequestBind() binding.Binding {
 	return binding.Form
 }
 
-func (entity *Controller) ShouldRender() bool {
+func (c *Controller) ShouldRender() bool {
 	return true
 }
 
-func (entity *Controller) RenderJsonFail(err error) {
-	render.RenderJsonFail(entity.GetCtx(), err)
+func (c *Controller) RenderJsonFail(err error) {
+	render.RenderJsonFail(c.GetCtx(), err)
 }
 
-func (entity *Controller) RenderJsonSuccess(data any) {
-	render.RenderJsonSucc(entity.GetCtx(), data)
+func (c *Controller) RenderJsonSuccess(data any) {
+	render.RenderJsonSucc(c.GetCtx(), data)
 }
 
-func slave(src any) any {
-	typ := reflect.TypeOf(src)
-	if typ.Kind() == reflect.Ptr { //如果是指针类型
-		typ = typ.Elem()               //获取源实际类型(否则为指针类型)
-		dst := reflect.New(typ).Elem() //创建对象
-		return dst.Addr().Interface()  //返回指针
-	} else {
-		dst := reflect.New(typ).Elem() //创建对象
-		return dst.Interface()         //返回值
+// clone Controller 实例（浅复制）
+// 这里改为用 reflect 创建新实例，避免指针类型判断复杂性
+func cloneController[T any](ctl IController[T]) IController[T] {
+	typ := reflect.TypeOf(ctl)
+	if typ.Kind() == reflect.Ptr {
+		typ = typ.Elem()
 	}
+	v := reflect.New(typ).Interface()
+	newCtl, ok := v.(IController[T])
+	if !ok {
+		panic("cloneController: type does not implement IController[T]")
+	}
+	return newCtl
 }
 
+// Gin Handler
 func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
 	return func(ctx *gin.Context) {
-		newCTL := slave(ctl).(IController[T])
-		newCTL.SetCtx(ctx)
-		newCTL.SetEntity(newCTL)
-		// 处理请求序列化
-		var newReq T
+		newCtl := cloneController(ctl)
+		newCtl.SetCtx(ctx)
+		newCtl.SetEntity(newCtl)
+
+		var req T
+		contentType := ctx.GetHeader("Content-Type")
+
 		var err error
-		if len(ctx.ContentType()) == 0 { // 针对无 Content-Type 的请求特殊处理, 按照controller的bind来
-			err = ctx.ShouldBindWith(&newReq, newCTL.RequestBind())
+		if contentType == "" {
+			// 无 Content-Type，使用 Controller 自定义的绑定器
+			err = ctx.ShouldBindWith(&req, newCtl.RequestBind())
 		} else {
-			err = ctx.ShouldBind(&newReq)
+			err = ctx.ShouldBind(&req)
 		}
+
 		if err != nil {
-			zlog.Errorf(newCTL.GetCtx(), "Controller %T param bind error, err:%+v", newCTL, err)
-			newCTL.RenderJsonFail(errors.ErrorParamInvalid)
+			zlog.Errorf(newCtl.GetCtx(), "Controller %T param bind error: %v", newCtl, err)
+			newCtl.RenderJsonFail(errors.ErrorParamInvalid)
 			return
 		}
-		// 实际业务逻辑执行
-		data, err := newCTL.Action(&newReq)
+
+		data, err := newCtl.Action(&req)
 		if err != nil {
-			zlog.Errorf(newCTL.GetCtx(), "Controller %T call action logic error, err:%+v", newCTL, err)
-			newCTL.RenderJsonFail(err)
+			zlog.Errorf(newCtl.GetCtx(), "Controller %T call action error: %v", newCtl, err)
+			newCtl.RenderJsonFail(err)
 			return
 		}
-		// 支持自定义渲染出参
-		if newCTL.ShouldRender() {
-			newCTL.RenderJsonSuccess(data)
+
+		if newCtl.ShouldRender() {
+			newCtl.RenderJsonSuccess(data)
 		}
 	}
 }
