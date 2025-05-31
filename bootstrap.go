@@ -70,14 +70,14 @@ func WithSwagger(urlPrefix string) BootstrapOption {
 }
 
 func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
-	// 统一添加pprof
-	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
-	// 统一的Prometheus注册
-	middleware.RegistryMetrics(engine)
 	// 依次执行传入的可选项
 	for _, opt := range opts {
 		opt(engine)
 	}
+	// 统一添加pprof
+	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
+	// 统一的Prometheus注册
+	middleware.RegistryMetrics(engine)
 }
 
 func StartHttpServer(engine *gin.Engine, port int) error {
