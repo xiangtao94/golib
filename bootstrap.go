@@ -7,14 +7,19 @@
 package golib
 
 import (
+	"fmt"
+	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
+	"log"
 	"net/http"
 	_ "net/http/pprof"
+	"os"
+	"strings"
 )
 
 type BootstrapOption func(engine *gin.Engine)
@@ -73,4 +78,24 @@ func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
 	for _, opt := range opts {
 		opt(engine)
 	}
+}
+
+func StartHttpServer(engine *gin.Engine, port int) error {
+	addr := fmt.Sprintf(":%d", port)
+	if strings.TrimSpace(addr) == "" || addr == ":" {
+		addr = ":8080"
+	}
+	server := endless.NewServer(addr, engine)
+	server.BeforeBegin = func(add string) {
+		log.Printf("PID: %d, Server running at %s\n", os.Getpid(), addr)
+	}
+	if err := server.ListenAndServe(); err != nil {
+		if strings.HasSuffix(err.Error(), "use of closed network connection") {
+			log.Printf("Server at %s closed normally\n", addr)
+			return nil
+		}
+		log.Printf("Server at %s failed: %v\n", addr, err)
+		return fmt.Errorf("server failed: %w", err)
+	}
+	return nil
 }
