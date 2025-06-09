@@ -11,6 +11,10 @@ import (
 	"github.com/pierrre/imageserver"
 	"github.com/pierrre/imageserver/cache"
 	"github.com/pierrre/imageserver/cache/memory"
+	_ "github.com/pierrre/imageserver/image/gif"
+	_ "github.com/pierrre/imageserver/image/jpeg"
+	_ "github.com/pierrre/imageserver/image/png"
+	_ "github.com/pierrre/imageserver/image/tiff"
 )
 
 type ImageServer struct {
