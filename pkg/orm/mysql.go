@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	ormUtil "gorm.io/gorm/utils"
 	"time"
@@ -31,6 +33,8 @@ type Option struct {
 	IsNeedCnt  bool `json:"isNeedCnt"`
 	IsNeedPage bool `json:"isNeedPage"`
 }
+
+var MysqlPromCollector prometheus.Collector
 
 // 分页示例
 func NormalPaginate(page *NormalPage) func(db *gorm.DB) *gorm.DB {
@@ -136,6 +140,7 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	sqlDB.SetConnMaxLifetime(conf.ConnMaxLifeTime)
 	// 设置最大空闲连接时间
 	sqlDB.SetConnMaxIdleTime(conf.ConnMaxIdlTime)
+	MysqlPromCollector = collectors.NewDBStatsCollector(sqlDB, conf.Addr)
 	return client, nil
 }
 

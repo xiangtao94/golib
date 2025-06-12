@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
+	"github.com/prometheus/client_golang/prometheus"
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
 	"github.com/xiangtao94/golib/pkg/env"
@@ -69,6 +70,14 @@ func WithSwagger(urlPrefix string) BootstrapOption {
 	}
 }
 
+// 6. Prometheus
+func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
+	return func(engine *gin.Engine) {
+		// 统一的Prometheus注册
+		middleware.RegistryMetrics(engine, cs...)
+	}
+}
+
 func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
 	// 依次执行传入的可选项
 	for _, opt := range opts {
@@ -76,8 +85,6 @@ func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
 	}
 	// 统一添加pprof
 	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
-	// 统一的Prometheus注册
-	middleware.RegistryMetrics(engine)
 }
 
 func StartHttpServer(engine *gin.Engine, port int) error {

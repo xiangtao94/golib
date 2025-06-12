@@ -7,6 +7,7 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/orm"
 	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"time"
@@ -50,11 +51,19 @@ var (
 	)
 )
 
-func RegistryMetrics(engine *gin.Engine) {
+func RegistryMetrics(engine *gin.Engine, cs ...prometheus.Collector) {
 	runtimeMetricsRegister := prometheus.NewRegistry()
-	runtimeMetricsRegister.MustRegister(collectors.NewGoCollector())
-	runtimeMetricsRegister.MustRegister(collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
-	runtimeMetricsRegister.MustRegister(reqCount, reqDuration, reqSizeBytes, respSizeBytes)
+	runtimeMetricsRegister.MustRegister(collectors.NewGoCollector(),
+		collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}),
+		reqCount,
+		reqDuration,
+		reqSizeBytes,
+		respSizeBytes)
+	if orm.MysqlPromCollector != nil {
+		runtimeMetricsRegister.MustRegister(orm.MysqlPromCollector)
+	}
+	// 自定义监控指标
+	runtimeMetricsRegister.MustRegister(cs...)
 	engine.Use(PromMiddleware(env.AppName))
 	engine.GET("/metrics", func(ctx *gin.Context) {
 		// 避免metrics打点输出过多无用日志
