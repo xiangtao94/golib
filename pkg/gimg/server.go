@@ -24,13 +24,18 @@ type ImageServer struct {
 
 func NewImageServer(cfg ImageServerConfig, client *minio.Client) *ImageServer {
 	store := NewMinioStoreServer(cfg.BucketName, client)
-	cachedServer := &cache.Server{
-		Server:       store,
-		Cache:        memory.New(cfg.CacheSize),
-		KeyGenerator: NewSourceHashKeyGenerator(),
+	var serv imageserver.Server
+	if cfg.CacheSize > 0 {
+		serv = &cache.Server{
+			Server:       store,
+			Cache:        memory.New(cfg.CacheSize),
+			KeyGenerator: NewSourceHashKeyGenerator(),
+		}
+	} else {
+		serv = store
 	}
 	return &ImageServer{
-		server:  cachedServer,
+		server:  serv,
 		handler: NewImageHandler(),
 	}
 }
