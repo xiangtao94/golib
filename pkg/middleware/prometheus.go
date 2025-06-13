@@ -9,7 +9,6 @@ import (
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/orm"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"math"
 	"net/http"
 	"time"
 )
@@ -78,6 +77,9 @@ func RegistryMetrics(engine *gin.Engine, cs ...prometheus.Collector) {
 
 func PromMiddleware(appName string) gin.HandlerFunc {
 	return func(c *gin.Context) {
+		if c.Request.URL.Path == "/metrics" {
+			return
+		}
 		start := time.Now()
 		c.Next()
 		status := fmt.Sprintf("%d", c.Writer.Status())
@@ -98,7 +100,7 @@ func PromMiddleware(appName string) gin.HandlerFunc {
 
 func getRequestCostInSeconds(start, end time.Time) float64 {
 	seconds := end.Sub(start).Seconds()
-	return math.Round(seconds*100) / 100
+	return seconds
 }
 
 // getRequestSize returns the size of request object.
