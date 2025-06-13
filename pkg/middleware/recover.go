@@ -19,7 +19,7 @@ func RegistryRecovery(engine *gin.Engine, handle gin.RecoveryFunc) {
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 	}
-	engine.Use(CustomRecoveryWithZap(zlog.NewLoggerWithSkip(1), handle))
+	//engine.Use(CustomRecoveryWithZap(zlog.NewLoggerWithSkip(1), handle))
 }
 
 func CustomRecoveryWithZap(logger *zap.Logger, handle gin.RecoveryFunc) gin.HandlerFunc {

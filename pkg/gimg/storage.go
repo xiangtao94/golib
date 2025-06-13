@@ -49,10 +49,13 @@ func (s *MinioStoreServer) loadImage(imgKey string) (*imageserver.Image, error) 
 	}
 	defer obj.Close()
 
-	data, err := io.ReadAll(obj)
+	var buf bytes.Buffer
+	_, err = io.Copy(&buf, obj)
 	if err != nil {
 		return nil, err
 	}
+
+	data := buf.Bytes()
 	_, format, err := image.Decode(bytes.NewReader(data))
 	if err != nil {
 		return nil, &imageserver.ImageError{Message: err.Error()}

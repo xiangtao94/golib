@@ -9,6 +9,7 @@ import (
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/orm"
 	"github.com/xiangtao94/golib/pkg/zlog"
+	"math"
 	"net/http"
 	"time"
 )
@@ -89,14 +90,15 @@ func PromMiddleware(appName string) gin.HandlerFunc {
 			respSize = 0
 		}
 		reqCount.WithLabelValues(lvs...).Inc()
-		reqDuration.WithLabelValues(lvs...).Observe(getRequestCost(start, time.Now()))
+		reqDuration.WithLabelValues(lvs...).Observe(getRequestCostInSeconds(start, time.Now()))
 		reqSizeBytes.WithLabelValues(lvs...).Observe(getRequestSize(c.Request))
 		respSizeBytes.WithLabelValues(lvs...).Observe(float64(respSize))
 	}
 }
 
-func getRequestCost(start, end time.Time) float64 {
-	return float64(end.Sub(start).Nanoseconds()/1e4) / 100.0
+func getRequestCostInSeconds(start, end time.Time) float64 {
+	seconds := end.Sub(start).Seconds()
+	return math.Round(seconds*100) / 100
 }
 
 // getRequestSize returns the size of request object.
