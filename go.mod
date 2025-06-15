@@ -13,6 +13,7 @@ require (
 	github.com/go-sql-driver/mysql v1.9.2
 	github.com/google/uuid v1.6.0
 	github.com/lestrrat-go/file-rotatelogs v2.4.0+incompatible
+	github.com/mark3labs/mcp-go v0.32.0
 	github.com/minio/minio-go/v7 v7.0.93
 	github.com/pierrre/imageserver v0.0.0-20250417085227-dca4aefaf9c4
 	github.com/prometheus/client_golang v1.22.0
@@ -77,10 +78,12 @@ require (
 	github.com/prometheus/common v0.62.0 // indirect
 	github.com/prometheus/procfs v0.15.1 // indirect
 	github.com/rs/xid v1.6.0 // indirect
+	github.com/spf13/cast v1.7.1 // indirect
 	github.com/swaggo/swag v1.16.4 // indirect
 	github.com/tinylib/msgp v1.3.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.2.14 // indirect
+	github.com/yosida95/uritemplate/v3 v3.0.2 // indirect
 	go.opentelemetry.io/auto/sdk v1.1.0 // indirect
 	go.opentelemetry.io/otel v1.36.0 // indirect
 	go.opentelemetry.io/otel/metric v1.36.0 // indirect

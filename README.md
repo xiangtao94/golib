@@ -56,7 +56,9 @@ GitHub: [https://github.com/xiangtao94/golib](https://github.com/xiangtao94/goli
 
 ### 15. **日志管理 (`zlog`)**
 - 封装日志组件，支持分级、格式化日志输出（JSON），支持上下文requestId, 方便跟踪与调试。
-
+- 
+### 16. **MCP (`mcp`)**
+- 支持gin框架下mcp使用, 基于NewStreamableHTTPServer
 ---
 
 ## 目录结构
