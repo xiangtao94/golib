@@ -17,12 +17,22 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		c.Request = c.Request.WithContext(ctx)
 
 		done := make(chan struct{})
+		panicChan := make(chan interface{}, 1)
+
 		go func() {
+			defer func() {
+				if p := recover(); p != nil {
+					panicChan <- p
+				}
+			}()
+
 			c.Next()
 			close(done)
 		}()
 
 		select {
+		case p := <-panicChan:
+			panic(p)
 		case <-done:
 			return
 		case <-ctx.Done():

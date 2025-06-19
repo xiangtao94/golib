@@ -6,14 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/xiangtao94/golib/pkg/zlog"
-	"go.uber.org/zap"
 	"net/http"
 	"net/url"
 	"slices"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
+	"go.uber.org/zap"
 
 	"github.com/gin-gonic/gin"
 	"resty.dev/v3"
@@ -114,11 +115,24 @@ func (c *ClientConf) initClient() error {
 		if c.MaxRespBodyLen == 0 {
 			c.MaxRespBodyLen = 10240
 		}
+
 		client := resty.New()
 		client.SetTimeout(c.Timeout)
 		client.SetRetryCount(c.RetryTimes)
 		client.SetRetryWaitTime(c.RetryWaitTime)
 		client.SetRetryMaxWaitTime(c.RetryMaxWaitTime)
+
+		// 优化连接池设置
+		if c.Transport == nil {
+			c.Transport = &http.Transport{
+				MaxIdleConns:        100,              // 最大空闲连接数
+				MaxIdleConnsPerHost: 10,               // 每个host的最大空闲连接数
+				IdleConnTimeout:     90 * time.Second, // 空闲连接超时时间
+				DisableKeepAlives:   false,            // 启用keep-alive
+			}
+		}
+		client.SetTransport(c.Transport)
+
 		if c.Proxy != "" {
 			client.SetProxy(c.Proxy)
 		}
@@ -438,4 +452,14 @@ func getFormRequestData(requestBody any) (url.Values, error) {
 	}
 
 	return nil, errors.New("unSupport RequestBody type")
+}
+
+// Close 关闭HTTP客户端并释放连接池资源
+func (c *ClientConf) Close() {
+	if c.HTTPClient != nil {
+		// 如果使用了自定义Transport，需要关闭空闲连接
+		if transport, ok := c.Transport.(*http.Transport); ok {
+			transport.CloseIdleConnections()
+		}
+	}
 }

@@ -21,3 +21,12 @@ func NewBucketCache(defaultExpiration, cleanupInterval time.Duration, shardnum i
 	}
 	return SC
 }
+
+// Close 停止janitor goroutine并释放资源
+func (bc *BucketCache) Close() {
+	if bc.janitor != nil {
+		stopShardedJanitor(bc)
+		bc.janitor = nil
+	}
+	runtime.SetFinalizer(bc, nil)
+}
