@@ -1,7 +1,7 @@
 // Package algo -----------------------------
 // @file      : request_id.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/5/24 18:14
 // Description:
 // -------------------------------------------
@@ -10,11 +10,12 @@ package zlog
 import (
 	"bytes"
 	"fmt"
-	"github.com/gin-gonic/gin"
 	"math/rand"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/gin-gonic/gin"
 )
 
 const (

@@ -1,7 +1,7 @@
 // Package algo -----------------------------
 // @file      : cache.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/6/9 11:17
 // Description:
 // -------------------------------------------

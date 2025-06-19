@@ -1,7 +1,7 @@
 // Package milvus -----------------------------
 // @file      : milvus.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/1/15
 // Description: Milvus向量数据库客户端封装
 // -------------------------------------------

@@ -1,7 +1,7 @@
 // Package algo -----------------------------
 // @file      : client_test.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/5/24 16:25
 // Description:
 // -------------------------------------------
@@ -9,13 +9,14 @@ package http
 
 import (
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/stretchr/testify/assert"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 	"time"
+
+	"github.com/gin-gonic/gin"
+	"github.com/stretchr/testify/assert"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 func init() {

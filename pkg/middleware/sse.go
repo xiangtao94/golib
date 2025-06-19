@@ -1,7 +1,7 @@
 // Package middleware -----------------------------
 // @file      : sse.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/3/25 15:08
 // -------------------------------------------
 package middleware

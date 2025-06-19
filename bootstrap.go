@@ -1,13 +1,19 @@
 // Package flow -----------------------------
 // @file      : cmd.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/3/18 13:54
 // -------------------------------------------
 package golib
 
 import (
 	"fmt"
+	"log"
+	"net/http"
+	_ "net/http/pprof"
+	"os"
+	"strings"
+
 	"github.com/fvbock/endless"
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
@@ -16,11 +22,6 @@ import (
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"log"
-	"net/http"
-	_ "net/http/pprof"
-	"os"
-	"strings"
 )
 
 type BootstrapOption func(engine *gin.Engine)

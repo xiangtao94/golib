@@ -1,7 +1,7 @@
 // Package mcp -----------------------------
 // @file      : types.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/6/16 02:16
 // -------------------------------------------
 package mcp
