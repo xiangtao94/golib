@@ -4,17 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/collectors"
-	"github.com/xiangtao94/golib/pkg/zlog"
-	ormUtil "gorm.io/gorm/utils"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	driver "github.com/go-sql-driver/mysql"
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
+	ormUtil "gorm.io/gorm/utils"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 type CrudModel struct {
@@ -209,4 +210,43 @@ func (l *ormLogger) AppendCustomField(ctx context.Context) []zlog.Field {
 		zlog.String("requestId", requestID),
 	}
 	return fields
+}
+
+// TransactionManager 事务管理器
+type TransactionManager struct {
+	ctx *gin.Context
+	db  *gorm.DB
+}
+
+// NewTransactionManager 创建事务管理器
+func NewTransactionManager(ctx *gin.Context, client *gorm.DB) *TransactionManager {
+	return &TransactionManager{
+		ctx: ctx,
+		db:  client.WithContext(ctx),
+	}
+}
+
+// ExecuteInTransaction 在事务中执行操作
+func (tm *TransactionManager) ExecuteInTransaction(operations ...func(*gorm.DB) error) error {
+	tx := tm.db.Begin()
+
+	defer func() {
+		if r := recover(); r != nil {
+			tx.Rollback()
+			panic(r)
+		}
+	}()
+
+	for _, operation := range operations {
+		if err := operation(tx); err != nil {
+			tx.Rollback()
+			return fmt.Errorf("transaction execute error: %w", err)
+		}
+	}
+
+	if err := tx.Commit().Error; err != nil {
+		return fmt.Errorf("transaction commit error: %w", err)
+	}
+
+	return nil
 }
