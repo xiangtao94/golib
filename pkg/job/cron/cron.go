@@ -1,14 +1,13 @@
 package cron
 
 import (
-	"fmt"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"log"
 	"os"
 	"runtime"
 	"sort"
-	"strings"
 	"time"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 
 	"github.com/gin-gonic/gin"
 )
@@ -180,7 +179,6 @@ func (c *Cron) Run() {
 }
 
 func (c *Cron) runWithRecovery(e *Entry) {
-
 	ctx := gin.CreateTestContextOnly(nil, c.gin)
 
 	defer func() {
@@ -189,25 +187,14 @@ func (c *Cron) runWithRecovery(e *Entry) {
 			buf := make([]byte, size)
 			buf = buf[:runtime.Stack(buf, false)]
 
-			handleName := ctx.HandlerName()
-			requestID := ctx.GetString("requestId")
-			logID := ctx.GetString("logID")
-
-			var body strings.Builder
-			body.WriteString(`{"level":"ERROR","time":"`)
-			body.WriteString(time.Now().Format("2006-01-02 15:04:05.999999"))
-			body.WriteString(`","file":"pkg/job/cron/cron.go:212","msg":"`)
-			body.WriteString(fmt.Sprintf("%+v", r))
-			body.WriteString(`","handle":"`)
-			body.WriteString(handleName)
-			body.WriteString(`","logId":"`)
-			body.WriteString(logID)
-			body.WriteString(`","requestId":"`)
-			body.WriteString(requestID)
-			body.WriteString(`","module":"stack"`)
-			body.WriteString(`}`)
-
-			c.logf("%s\n-------------------stack-start-------------------\n%v\n%s\n-------------------stack-end-------------------\n", body.String(), r, buf)
+			// 使用现有的zlog API记录错误
+			zlog.Errorf(ctx, "cron job panic: %+v\nhandle: %s\nrequestId: %s\nlogId: %s\nstack:\n%s",
+				r,
+				ctx.HandlerName(),
+				ctx.GetString("requestId"),
+				ctx.GetString("logID"),
+				string(buf),
+			)
 		}
 	}()
 

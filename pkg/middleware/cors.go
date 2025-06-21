@@ -1,14 +1,15 @@
 // Package middleware -----------------------------
 // @file      : cors.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/3/25 15:07
 // -------------------------------------------
 package middleware
 
 import (
-	"github.com/gin-gonic/gin"
 	"net/http"
+
+	"github.com/gin-gonic/gin"
 )
 
 func Cors(c *gin.Context) {

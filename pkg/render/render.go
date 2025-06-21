@@ -1,7 +1,7 @@
 // Package render -----------------------------
 // @file      : render.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/4/2 11:10
 // -------------------------------------------
 package render
@@ -10,14 +10,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-contrib/sse"
-	"github.com/gin-gonic/gin"
-	errors2 "github.com/xiangtao94/golib/pkg/errors"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"net/http"
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/gin-contrib/sse"
+	"github.com/gin-gonic/gin"
+	errors2 "github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 // 定义render通用类型

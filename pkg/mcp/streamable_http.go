@@ -1,17 +1,18 @@
 // Package mcp -----------------------------
 // @file      : server.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/6/16 01:57
 // -------------------------------------------
 package mcp
 
 import (
 	"fmt"
+	"slices"
+
 	"github.com/gin-gonic/gin"
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"slices"
 )
 
 // Register 注册MCP路由到Gin引擎
@@ -39,12 +40,12 @@ type mcpLogger struct {
 }
 
 func (l *mcpLogger) Infof(format string, v ...any) {
-	l.logger.Info(fmt.Sprintf(format, v))
+	l.logger.Info(fmt.Sprintf(format, v...))
 
 }
 
 func (l mcpLogger) Errorf(format string, v ...any) {
-	l.logger.Error(fmt.Sprintf(format, v))
+	l.logger.Error(fmt.Sprintf(format, v...))
 }
 
 func newLogger() *mcpLogger {

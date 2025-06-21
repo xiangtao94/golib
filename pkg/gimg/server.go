@@ -1,7 +1,7 @@
 // Package gimg -----------------------------
 // @file      : server.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/4/15 18:17
 // -------------------------------------------
 package gimg

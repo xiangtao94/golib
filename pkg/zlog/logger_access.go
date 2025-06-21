@@ -1,7 +1,7 @@
 // Package algo -----------------------------
 // @file      : logger_access.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/5/24 18:04
 // Description:
 // -------------------------------------------

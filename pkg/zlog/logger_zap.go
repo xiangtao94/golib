@@ -1,16 +1,17 @@
 // Package algo -----------------------------
 // @file      : logger_zap.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/5/24 17:58
 // Description:
 // -------------------------------------------
 package zlog
 
 import (
+	"sync"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-	"sync"
 )
 
 const (

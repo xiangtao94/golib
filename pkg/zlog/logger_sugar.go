@@ -1,7 +1,7 @@
 // Package algo -----------------------------
 // @file      : logger_sugar.go
 // @author    : xiangtao
-// @contact   : xiangtao@hidream.ai
+// @contact   : xiangtao1994@gmail.com
 // @time      : 2025/5/24 17:29
 // Description: 是 zap.Logger 的封装，提供了类似 fmt.Printf 风格的日志接口， 性能比zap.logger会低
 // -------------------------------------------

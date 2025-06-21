@@ -30,3 +30,4 @@ log/*
 *.swo
 
 go.sock
+.DS_Store

@@ -3,10 +3,7 @@ package cycle
 import (
 	"context"
 	"fmt"
-	"log"
-	"os"
 	"runtime"
-	"strings"
 	"sync"
 	"time"
 
@@ -167,49 +164,27 @@ func (c *Cycle) runOnce(ctx context.Context, e *Entry) error {
 			buf := make([]byte, size)
 			buf = buf[:runtime.Stack(buf, false)]
 
-			handleName := ginCtx.HandlerName()
-			requestID := ginCtx.GetString("requestId")
-			logID := ginCtx.GetString("logID")
-
-			var body strings.Builder
-			body.WriteString(`{"level":"ERROR","time":"`)
-			body.WriteString(time.Now().Format("2006-01-02 15:04:05.999999"))
-			body.WriteString(`","file":"pkg/job/cycle/cycle.go","msg":"`)
-			body.WriteString(fmt.Sprintf("%+v", r))
-			body.WriteString(`","handle":"`)
-			body.WriteString(handleName)
-			body.WriteString(`","logId":"`)
-			body.WriteString(logID)
-			body.WriteString(`","requestId":"`)
-			body.WriteString(requestID)
-			body.WriteString(`","module":"stack"`)
-			body.WriteString(`}`)
-
-			std := log.New(os.Stderr, "\n\n\u001B[31m", 0)
-			f := "%s\n-------------------stack-start-------------------\n%v\n%s\n-------------------stack-end-------------------\n"
-			if std != nil {
-				std.Printf(f, body.String(), r, buf)
-			} else {
-				log.Printf(f, body.String(), r, buf)
-			}
+			// 使用现有的zlog API记录错误，性能更好
+			zlog.Errorf(ginCtx, "cycle job panic: %+v\nhandle: %s\nrequestId: %s\nlogId: %s\nstack:\n%s",
+				r,
+				ginCtx.HandlerName(),
+				ginCtx.GetString("requestId"),
+				ginCtx.GetString("logID"),
+				string(buf),
+			)
 		}
 	}()
 
 	if c.beforeRun != nil {
 		ok := c.beforeRun(ginCtx)
 		if !ok {
-			return nil // beforeRun阻止执行，不算失败
+			return fmt.Errorf("beforeRun returned false")
 		}
 	}
 
 	err := e.Job.Run(ginCtx)
-	if err != nil {
-		return err
-	}
-
 	if c.afterRun != nil {
 		c.afterRun(ginCtx)
 	}
-
-	return nil
+	return err
 }
