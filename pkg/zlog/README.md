@@ -84,6 +84,115 @@ zlog.Reflect("config", appConfig)
 
 ## 日志配置
 
+### 快速开始
+
+```go
+package main
+
+import (
+    "github.com/xiangtao94/golib/pkg/zlog"
+)
+
+func main() {
+    // 方式1: 使用默认配置（推荐）
+    logger := zlog.InitLog()
+    
+    // 方式2: 使用空配置（等同于默认配置）
+    logger = zlog.InitLog(zlog.LogConfig{})
+    
+    // 方式3: 部分自定义配置
+    logger = zlog.InitLog(zlog.LogConfig{
+        Level: "debug",  // 只设置级别，其他使用默认值
+    })
+    
+    // 使用日志
+    logger.Info("应用启动成功")
+}
+```
+
+### 默认配置
+
+当不传入任何配置或传入空配置时，系统将使用以下默认配置：
+
+```go
+func DefaultLogConfig() LogConfig {
+    return LogConfig{
+        Level:     "info",                           // 日志级别
+        Stdout:    true,                             // 控制台输出
+        LogToFile: !env.IsDockerPlatform(),          // 容器环境默认不输出文件
+        Format:    "json",                           // JSON格式
+        LogDir:    "./log",                          // 日志目录
+        Buffer: Buffer{
+            Size:          256 * 1024,               // 256KB缓冲区
+            FlushInterval: 5 * time.Second,          // 5秒刷新
+        },
+    }
+}
+```
+
+### 完整配置示例
+
+```go
+logger := zlog.InitLog(zlog.LogConfig{
+    Level:     "debug",            // 日志级别: debug, info, warn, error, fatal
+    Stdout:    true,               // 是否输出到控制台
+    LogToFile: true,               // 是否输出到文件
+    Format:    "console",          // 输出格式: json, console
+    LogDir:    "/var/log/myapp",   // 日志文件目录
+    Buffer: zlog.Buffer{
+        Switch:        "true",             // 缓冲区开关: true, false, 或空(自动判断)
+        Size:          512 * 1024,         // 缓冲区大小(字节)
+        FlushInterval: 10 * time.Second,   // 刷新间隔
+    },
+})
+```
+
+### 与Bootstrap集成
+
+```go
+package main
+
+import (
+    "github.com/gin-gonic/gin"
+    "github.com/xiangtao94/golib"
+    "github.com/xiangtao94/golib/pkg/zlog"
+)
+
+func main() {
+    engine := gin.New()
+    
+    // 使用默认日志配置
+    golib.Bootstraps(engine,
+        golib.WithAppName("my-app"),
+        golib.WithZlog(),  // 不传参数，使用默认配置
+    )
+    
+    // 或者使用自定义配置
+    golib.Bootstraps(engine,
+        golib.WithAppName("my-app"),
+        golib.WithZlog(zlog.LogConfig{
+            Level: "debug",
+            Format: "console",
+        }),
+    )
+    
+    golib.StartHttpServer(engine, 8080)
+}
+```
+
+### 配置说明
+
+| 配置项 | 类型 | 默认值 | 说明 |
+|--------|------|--------|------|
+| Level | string | "info" | 日志级别，支持: debug, info, warn, error, fatal |
+| Stdout | bool | true | 是否输出到控制台 |
+| LogToFile | bool | 环境判断 | 是否输出到文件，容器环境默认false，其他环境默认true |
+| Format | string | "json" | 输出格式，支持: json, console |
+| LogDir | string | "./log" | 日志文件目录 |
+| Buffer.Switch | string | 环境判断 | 缓冲区开关，容器环境默认开启，其他环境默认关闭 |
+| Buffer.Size | int | 262144 | 缓冲区大小(256KB) |
+| Buffer.FlushInterval | time.Duration | 5s | 缓冲区刷新间隔 |
+
 ### 文件结构
 
 ```
@@ -94,19 +203,6 @@ logs/
 ├── app-2024-01-01.log   # 按日期轮转的日志
 ├── app-2024-01-01.log.wf
 └── app-2024-01-01.log.access
-```
-
-### 初始化配置
-
-在 `bootstrap.go` 或其他初始化文件中配置：
-
-```go
-import "github.com/xiangtao94/golib/pkg/zlog"
-
-func init() {
-    // 配置将在导入时自动加载
-    // 可以通过环境变量或配置文件进行自定义
-}
 ```
 
 ## 性能优化

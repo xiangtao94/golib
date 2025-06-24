@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	_ "net/http/pprof"
 	"os"
 	"strings"
 
@@ -19,9 +18,12 @@ import (
 	"github.com/prometheus/client_golang/prometheus"
 	swaggerfiles "github.com/swaggo/files"
 	ginSwagger "github.com/swaggo/gin-swagger"
+
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
+
+	_ "net/http/pprof"
 )
 
 type BootstrapOption func(engine *gin.Engine)
@@ -40,10 +42,10 @@ func WithLang(lang string) BootstrapOption {
 	}
 }
 
-// 3. 日志
-func WithZlog(conf zlog.LogConfig) BootstrapOption {
+// 3. 日志 - 支持可选配置
+func WithZlog(conf ...zlog.LogConfig) BootstrapOption {
 	return func(engine *gin.Engine) {
-		zlog.InitLog(conf)
+		zlog.InitLog(conf...)
 	}
 }
 

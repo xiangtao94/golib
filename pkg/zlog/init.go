@@ -2,13 +2,14 @@ package zlog
 
 import (
 	"fmt"
-	"github.com/xiangtao94/golib/pkg/env"
 	"os"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+
+	"github.com/xiangtao94/golib/pkg/env"
 )
 
 // 对用户暴露的log配置
@@ -25,6 +26,47 @@ type LogConfig struct {
 	LogToFile bool   `yaml:"logToFile"`
 	Format    string `yaml:"format"`
 	LogDir    string `yaml:"logDir"`
+}
+
+// DefaultLogConfig 返回默认的日志配置
+func DefaultLogConfig() LogConfig {
+	return LogConfig{
+		Level:     "info",
+		Stdout:    true,
+		LogToFile: !env.IsDockerPlatform(), // 容器环境默认不输出到文件
+		Format:    "json",
+		LogDir:    "./log",
+		Buffer: Buffer{
+			Size:          256 * 1024,      // 256KB
+			FlushInterval: 5 * time.Second, // 5秒
+		},
+	}
+}
+
+// mergeWithDefault 将用户配置与默认配置合并
+func mergeWithDefault(userConf LogConfig) LogConfig {
+	defaultConf := DefaultLogConfig()
+
+	// 如果用户没有设置，使用默认值
+	if userConf.Level == "" {
+		userConf.Level = defaultConf.Level
+	}
+	if userConf.Format == "" {
+		userConf.Format = defaultConf.Format
+	}
+	if userConf.LogDir == "" {
+		userConf.LogDir = defaultConf.LogDir
+	}
+
+	// Buffer 配置合并
+	if userConf.Buffer.Size == 0 {
+		userConf.Buffer.Size = defaultConf.Buffer.Size
+	}
+	if userConf.Buffer.FlushInterval == 0 {
+		userConf.Buffer.FlushInterval = defaultConf.Buffer.FlushInterval
+	}
+
+	return userConf
 }
 
 func (conf LogConfig) SetLogLevel() {
@@ -77,18 +119,42 @@ func (conf LogConfig) SetBuffer() {
 }
 
 func (conf LogConfig) SetLogOutput() {
-	if env.IsDockerPlatform() && !conf.LogToFile {
-		// 容器环境
-		logConfig.Log2File = false
+	// 使用用户配置的 LogDir
+	if conf.LogDir != "" {
+		logConfig.Path = conf.LogDir
 	} else {
-		// 开发环境下默认输出到文件
-		logConfig.Log2File = true
 		logConfig.Path = env.GetLogDirPath()
+	}
+
+	// 使用用户配置的 Format
+	if conf.Format != "" {
+		logConfig.LogFormat = conf.Format
+	}
+
+	// 判断是否输出到文件
+	if env.IsDockerPlatform() && !conf.LogToFile {
+		// 容器环境且明确设置不输出到文件
+		logConfig.Log2File = false
+	} else if conf.LogToFile {
+		// 明确设置输出到文件
+		logConfig.Log2File = true
 		// 目录不存在则先创建目录
 		if _, err := os.Stat(logConfig.Path); os.IsNotExist(err) {
 			err = os.MkdirAll(logConfig.Path, 0777)
 			if err != nil {
 				panic(fmt.Errorf("log conf err: create log dir '%s' error: %s", logConfig.Path, err))
+			}
+		}
+	} else {
+		// 未明确设置，使用环境判断
+		logConfig.Log2File = !env.IsDockerPlatform()
+		if logConfig.Log2File {
+			// 目录不存在则先创建目录
+			if _, err := os.Stat(logConfig.Path); os.IsNotExist(err) {
+				err = os.MkdirAll(logConfig.Path, 0777)
+				if err != nil {
+					panic(fmt.Errorf("log conf err: create log dir '%s' error: %s", logConfig.Path, err))
+				}
 			}
 		}
 	}
@@ -121,14 +187,24 @@ var logConfig = struct {
 	LogFormat:           "json",
 }
 
-func InitLog(conf LogConfig) *zap.SugaredLogger {
+// InitLog 初始化日志，支持传入配置或使用默认配置
+func InitLog(conf ...LogConfig) *zap.SugaredLogger {
+	var logConf LogConfig
+	if len(conf) > 0 {
+		// 使用传入的配置，并与默认配置合并
+		logConf = mergeWithDefault(conf[0])
+	} else {
+		// 使用默认配置
+		logConf = DefaultLogConfig()
+	}
+
 	logConfig.ModuleName = env.AppName
 	// 全局日志级别
-	conf.SetLogLevel()
+	logConf.SetLogLevel()
 	// 日志缓冲区设置
-	conf.SetBuffer()
+	logConf.SetBuffer()
 	// 日志输出方式
-	conf.SetLogOutput()
+	logConf.SetLogOutput()
 	// 初始化全局logger
 	globalLogger = GetGlobalLogger()
 	Info(nil, "Logger initialized")

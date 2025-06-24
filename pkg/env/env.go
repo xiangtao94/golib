@@ -1,10 +1,11 @@
 package env
 
 import (
-	"github.com/gin-gonic/gin"
 	"net"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
 )
 
 const DefaultRootPath = "."
@@ -15,6 +16,10 @@ const (
 	I18N_EN      = "en"
 )
 
+const (
+	APP_NAME = "GIN_APP_NAME"
+)
+
 var (
 	// 本地ip
 	LocalIP string
@@ -23,7 +28,7 @@ var (
 	// 是否docker运行
 	isDocker bool
 	// 项目AppName
-	AppName = "demo"
+	AppName string
 	// 国际化默认语言 zh 、en
 	DefaultLang = I18N_ZH
 )
@@ -36,6 +41,7 @@ func init() {
 	if r == gin.ReleaseMode {
 		isDocker = true
 	}
+	AppName = os.Getenv(APP_NAME)
 }
 
 // RootPath 返回应用的根目录
