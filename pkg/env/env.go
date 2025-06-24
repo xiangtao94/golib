@@ -42,6 +42,9 @@ func init() {
 		isDocker = true
 	}
 	AppName = os.Getenv(APP_NAME)
+	if AppName == "" {
+		AppName = "XT"
+	}
 }
 
 // RootPath 返回应用的根目录
