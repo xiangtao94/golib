@@ -1,78 +1,139 @@
-# MySQL ORM
+# ORM
 
-基于 GORM 封装的 MySQL 数据库访问层，提供完整的日志记录、连接池管理和 Prometheus 监控功能。
+这个包提供了对MySQL和内存数据库的ORM支持，基于GORM框架。
 
 ## 功能特性
 
-- ✅ **GORM 集成**: 基于流行的 GORM ORM 框架
-- ✅ **连接池管理**: 优化的数据库连接池配置
-- ✅ **日志记录**: 集成 zlog 记录所有 SQL 操作
-- ✅ **性能监控**: 内置 Prometheus 指标收集
-- ✅ **标准模型**: 提供通用的 CRUD 模型结构
-- ✅ **分页支持**: 内置分页查询功能
-- ✅ **超时控制**: 可配置的连接、读写超时
+- 支持MySQL数据库连接
+- 支持SQLite内存数据库
+- 统一的接口设计，便于数据库切换
+- 事务管理支持
+- 分页查询支持
+- 日志记录和监控
 
-## 快速开始
+## 使用示例
 
-### 1. 配置结构体
+### MySQL数据库
 
 ```go
-type MysqlConf struct {
-    DataBase        string        `yaml:"database"`        // 数据库名
-    Addr            string        `yaml:"addr"`            // 数据库地址
-    User            string        `yaml:"user"`            // 用户名
-    Password        string        `yaml:"password"`        // 密码
-    Charset         string        `yaml:"charset"`         // 字符集
-    MaxIdleConns    int           `yaml:"maxidleconns"`    // 最大空闲连接数
-    MaxOpenConns    int           `yaml:"maxopenconns"`    // 最大打开连接数
-    ConnMaxIdlTime  time.Duration `yaml:"maxIdleTime"`     // 连接最大空闲时间
-    ConnMaxLifeTime time.Duration `yaml:"connMaxLifeTime"` // 连接最大生存时间
-    ConnTimeOut     time.Duration `yaml:"connTimeOut"`     // 连接超时时间
-    WriteTimeOut    time.Duration `yaml:"writeTimeOut"`    // 写超时时间
-    ReadTimeOut     time.Duration `yaml:"readTimeOut"`     // 读超时时间
+import "github.com/xiangtao94/golib/pkg/orm"
+
+// 配置MySQL
+mysqlConf := orm.MysqlConf{
+    DataBase: "test_db",
+    Addr:     "localhost:3306",
+    User:     "root",
+    Password: "password",
+    Charset:  "utf8mb4",
 }
+
+// 初始化MySQL客户端
+db, err := orm.InitMysqlClient(mysqlConf)
+if err != nil {
+    panic(err)
+}
+
+// 使用事务管理器
+tm := orm.NewTransactionManager(ctx, db)
+err = tm.ExecuteInTransaction(
+    func(tx *gorm.DB) error {
+        // 执行数据库操作
+        return tx.Create(&user).Error
+    },
+)
 ```
 
-### 2. 初始化数据库连接
+### 内存数据库
 
 ```go
-package main
+import "github.com/xiangtao94/golib/pkg/orm"
 
-import (
-    "time"
-    "github.com/xiangtao94/golib/pkg/orm"
-    "gorm.io/gorm"
+// 配置内存数据库
+memoryConf := orm.MemoryConf{
+    DatabaseName: "test_memory_db",
+}
+
+// 初始化内存数据库客户端
+db, err := orm.InitMemoryClient(memoryConf)
+if err != nil {
+    panic(err)
+}
+
+// 使用事务管理器
+tm := orm.NewMemoryTransactionManager(ctx, db)
+err = tm.ExecuteInTransaction(
+    func(tx *gorm.DB) error {
+        // 执行数据库操作
+        return tx.Create(&user).Error
+    },
+)
+```
+
+### 数据库切换
+
+为了方便数据库切换，可以创建一个统一的数据库工厂：
+
+```go
+type DatabaseType string
+
+const (
+    DatabaseTypeMySQL  DatabaseType = "mysql"
+    DatabaseTypeMemory DatabaseType = "memory"
 )
 
-func main() {
-    conf := orm.MysqlConf{
-        DataBase:        "myapp",
-        Addr:            "localhost:3306",
-        User:            "root",
-        Password:        "password",
-        Charset:         "utf8mb4",
-        MaxIdleConns:    50,
-        MaxOpenConns:    100,
-        ConnMaxIdlTime:  5 * time.Minute,
-        ConnMaxLifeTime: 10 * time.Minute,
-        ConnTimeOut:     3 * time.Second,
-        WriteTimeOut:    1200 * time.Millisecond,
-        ReadTimeOut:     1200 * time.Millisecond,
+type DatabaseFactory struct {
+    dbType DatabaseType
+    db     *gorm.DB
+}
+
+func NewDatabaseFactory(dbType DatabaseType) (*DatabaseFactory, error) {
+    var db *gorm.DB
+    var err error
+    
+    switch dbType {
+    case DatabaseTypeMySQL:
+        conf := orm.MysqlConf{
+            // MySQL配置
+        }
+        db, err = orm.InitMysqlClient(conf)
+    case DatabaseTypeMemory:
+        conf := orm.MemoryConf{
+            DatabaseName: "app_db",
+        }
+        db, err = orm.InitMemoryClient(conf)
+    default:
+        return nil, fmt.Errorf("unsupported database type: %s", dbType)
     }
     
-    db, err := orm.InitMysqlClient(conf)
     if err != nil {
-        log.Fatal(err)
+        return nil, err
     }
     
-    // 使用数据库连接
-    // ...
+    return &DatabaseFactory{
+        dbType: dbType,
+        db:     db,
+    }, nil
+}
+
+func (f *DatabaseFactory) GetDB() *gorm.DB {
+    return f.db
+}
+
+func (f *DatabaseFactory) NewTransactionManager(ctx *gin.Context) interface{} {
+    switch f.dbType {
+    case DatabaseTypeMySQL:
+        return orm.NewTransactionManager(ctx, f.db)
+    case DatabaseTypeMemory:
+        return orm.NewMemoryTransactionManager(ctx, f.db)
+    default:
+        return nil
+    }
 }
 ```
 
-## 标准模型
+## 共用结构
 
-### CrudModel 基础模型
+### CrudModel
 
 ```go
 type CrudModel struct {
@@ -80,200 +141,37 @@ type CrudModel struct {
     UpdatedAt time.Time      `json:"updatedAt" gorm:"comment:最后更新时间"`
     DeletedAt gorm.DeletedAt `json:"-" gorm:"index;comment:删除时间"`
 }
-
-// 使用示例
-type User struct {
-    ID       uint   `gorm:"primary_key"`
-    Username string `gorm:"size:100;not null;unique"`
-    Email    string `gorm:"size:100;not null"`
-    orm.CrudModel // 嵌入标准字段
-}
-```
-
-### 分页结构
-
-```go
-type NormalPage struct {
-    No      int    // 当前第几页
-    Size    int    // 每页大小
-    OrderBy string `json:"orderBy"` // 排序规则
-}
-
-type Option struct {
-    IsNeedCnt  bool `json:"isNeedCnt"`  // 是否需要总数
-    IsNeedPage bool `json:"isNeedPage"` // 是否需要分页
-}
-```
-
-## 使用示例
-
-### 基本 CRUD 操作
-
-```go
-// 定义模型
-type User struct {
-    ID       uint   `gorm:"primary_key"`
-    Username string `gorm:"size:100;not null;unique"`
-    Email    string `gorm:"size:100;not null"`
-    Age      int    `gorm:"default:0"`
-    orm.CrudModel
-}
-
-// 创建表
-err := db.AutoMigrate(&User{})
-if err != nil {
-    log.Fatal(err)
-}
-
-// 创建记录
-user := User{
-    Username: "zhangsan",
-    Email:    "zhangsan@example.com",
-    Age:      25,
-}
-result := db.Create(&user)
-if result.Error != nil {
-    log.Fatal(result.Error)
-}
-
-// 查询记录
-var users []User
-db.Where("age > ?", 18).Find(&users)
-
-// 更新记录
-db.Model(&user).Update("Age", 26)
-
-// 删除记录（软删除）
-db.Delete(&user)
 ```
 
 ### 分页查询
 
 ```go
-// 使用内置分页函数
 page := &orm.NormalPage{
-    No:      1,    // 第1页
-    Size:    10,   // 每页10条
-    OrderBy: "created_at desc", // 按创建时间降序
+    No:      1,
+    Size:    10,
+    OrderBy: "id desc",
 }
 
 var users []User
-var total int64
-
-// 获取总数
-db.Model(&User{}).Count(&total)
-
-// 分页查询
 db.Scopes(orm.NormalPaginate(page)).Find(&users)
-
-fmt.Printf("总数: %d, 当前页: %d, 每页: %d\n", total, page.No, page.Size)
 ```
 
-### 高级查询示例
+## 注意事项
 
-```go
-// 条件查询
-var users []User
-db.Where("age BETWEEN ? AND ?", 18, 65).
-   Where("email LIKE ?", "%@gmail.com").
-   Order("created_at desc").
-   Find(&users)
+1. **内存数据库特点**：
+   - 数据存储在内存中，应用重启后数据会丢失
+   - 适合测试环境或临时数据存储
+   - 性能较高，但容量受内存限制
 
-// 关联查询
-type Profile struct {
-    ID     uint   `gorm:"primary_key"`
-    UserID uint   `gorm:"not null"`
-    Bio    string `gorm:"type:text"`
-    User   User   `gorm:"foreignKey:UserID"`
-}
+2. **数据库切换**：
+   - 两种数据库使用相同的GORM接口
+   - 事务管理器接口略有不同，建议使用工厂模式统一管理
+   - 配置参数不同，需要根据数据库类型设置相应配置
 
-var profiles []Profile
-db.Preload("User").Find(&profiles)
-
-// 聚合查询
-type AgeStats struct {
-    AvgAge   float64
-    MinAge   int
-    MaxAge   int
-    UserCount int64
-}
-
-var stats AgeStats
-db.Model(&User{}).
-   Select("AVG(age) as avg_age, MIN(age) as min_age, MAX(age) as max_age, COUNT(*) as user_count").
-   Scan(&stats)
-```
-
-### 事务处理
-
-```go
-// 手动事务
-tx := db.Begin()
-defer func() {
-    if r := recover(); r != nil {
-        tx.Rollback()
-    }
-}()
-
-if err := tx.Error; err != nil {
-    return err
-}
-
-// 在事务中执行操作
-if err := tx.Create(&user1).Error; err != nil {
-    tx.Rollback()
-    return err
-}
-
-if err := tx.Create(&user2).Error; err != nil {
-    tx.Rollback()
-    return err
-}
-
-// 提交事务
-return tx.Commit().Error
-
-// 或者使用 GORM 的事务函数
-err := db.Transaction(func(tx *gorm.DB) error {
-    if err := tx.Create(&user1).Error; err != nil {
-        return err
-    }
-    if err := tx.Create(&user2).Error; err != nil {
-        return err
-    }
-    return nil
-})
-```
-
-## 性能监控
-
-客户端自动集成 Prometheus 监控指标：
-
-```go
-// Prometheus 收集器会自动注册
-// 可以通过以下方式访问：
-collector := orm.MysqlPromCollector
-
-// 在 Prometheus 中注册
-prometheus.MustRegister(collector)
-```
-
-监控指标包括：
-- 数据库连接数
-- 空闲连接数
-- 正在使用的连接数
-- 等待连接数
-- 连接持续时间等
-
-## 日志记录
-
-所有 SQL 操作都会自动记录日志，包括：
-
-- SQL 语句
-- 执行时间
-- 影响行数
-- 错误信息（如果有）
-- 请求ID（集成 Gin 框架）
+3. **监控和日志**：
+   - 都支持Prometheus监控
+   - 使用统一的日志格式
+   - 支持请求ID追踪
 
 ```go
 // 日志示例输出
