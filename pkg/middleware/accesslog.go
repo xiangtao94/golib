@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
 	"mime"
 	"slices"
@@ -14,6 +13,8 @@ import (
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
@@ -51,6 +52,42 @@ type AccessLoggerConfig struct {
 	MaxRespBodyLen int `yaml:"maxRespBodyLen"`
 	// 自定义Skip功能
 	Skip func(ctx *gin.Context) bool
+}
+
+// DefaultAccessLoggerConfig 返回默认的Access日志配置
+func DefaultAccessLoggerConfig() AccessLoggerConfig {
+	return AccessLoggerConfig{
+		SkipPaths:      []string{},
+		PrintHeaders:   []string{},
+		PrintCookie:    false,
+		MaxReqBodyLen:  _defaultPrintRequestLen,
+		MaxRespBodyLen: _defaultPrintResponseLen,
+		Skip:           nil,
+	}
+}
+
+// mergeWithDefaultAccessLog 将用户配置与默认配置合并
+func mergeWithDefaultAccessLog(userConf AccessLoggerConfig) AccessLoggerConfig {
+	defaultConf := DefaultAccessLoggerConfig()
+
+	// 如果用户没有设置，使用默认值
+	if userConf.SkipPaths == nil {
+		userConf.SkipPaths = defaultConf.SkipPaths
+	}
+	if userConf.PrintHeaders == nil {
+		userConf.PrintHeaders = defaultConf.PrintHeaders
+	}
+	if userConf.MaxReqBodyLen == 0 {
+		userConf.MaxReqBodyLen = defaultConf.MaxReqBodyLen
+	}
+	if userConf.MaxRespBodyLen == 0 {
+		userConf.MaxRespBodyLen = defaultConf.MaxRespBodyLen
+	}
+	if userConf.Skip == nil {
+		userConf.Skip = defaultConf.Skip
+	}
+
+	return userConf
 }
 
 func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
@@ -193,6 +230,14 @@ func getHeader(ctx *gin.Context, headers []string) string {
 	return strings.TrimRight(cStr, "&")
 }
 
-func RegistryAccessLog(engine *gin.Engine, conf AccessLoggerConfig) {
-	engine.Use(AccessLog(conf))
+func RegistryAccessLog(engine *gin.Engine, conf ...AccessLoggerConfig) {
+	var logConf AccessLoggerConfig
+	if len(conf) > 0 {
+		// 使用传入的配置，并与默认配置合并
+		logConf = mergeWithDefaultAccessLog(conf[0])
+	} else {
+		// 使用默认配置
+		logConf = DefaultAccessLoggerConfig()
+	}
+	engine.Use(AccessLog(logConf))
 }

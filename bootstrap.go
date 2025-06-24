@@ -49,10 +49,10 @@ func WithZlog(conf ...zlog.LogConfig) BootstrapOption {
 	}
 }
 
-// 4. Access Log
-func WithAccessLog(conf middleware.AccessLoggerConfig) BootstrapOption {
+// 4. Access Log - 支持可选配置
+func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
 	return func(engine *gin.Engine) {
-		middleware.RegistryAccessLog(engine, conf)
+		middleware.RegistryAccessLog(engine, conf...)
 	}
 }
 
