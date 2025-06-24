@@ -5,17 +5,19 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/core/search"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
-	"github.com/gin-gonic/gin"
-	"github.com/google/uuid"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"io"
 	"net/http"
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/elastic/go-elasticsearch/v8"
+	"github.com/elastic/go-elasticsearch/v8/typedapi/core/search"
+	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
+	"github.com/gin-gonic/gin"
+	"github.com/google/uuid"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
@@ -174,7 +176,7 @@ type elasticLogger struct {
 
 func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Response, err error, start time.Time, duration time.Duration) error {
 	request.Context()
-	fields := e.AppendCustomField(request.Context())
+	fields := []zlog.Field{}
 	fields = append(fields,
 		zlog.String("path", request.URL.Path),
 		zlog.String("method", request.Method),
