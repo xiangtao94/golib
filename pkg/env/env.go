@@ -17,7 +17,7 @@ const (
 )
 
 const (
-	APP_NAME = "GIN_APP_NAME"
+	APP_NAME = "XT_APP_NAME"
 )
 
 var (
@@ -41,10 +41,7 @@ func init() {
 	if r == gin.ReleaseMode {
 		isDocker = true
 	}
-	AppName = os.Getenv(APP_NAME)
-	if AppName == "" {
-		AppName = "XT"
-	}
+	AppName = GetEnv(APP_NAME, "XT")
 }
 
 // RootPath 返回应用的根目录
@@ -109,4 +106,11 @@ func GetInternalIp() string {
 	}
 
 	return ""
+}
+
+func GetEnv(key, fallback string) string {
+	if value, ok := os.LookupEnv(key); ok {
+		return value
+	}
+	return fallback
 }
