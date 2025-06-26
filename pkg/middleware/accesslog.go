@@ -140,6 +140,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		// 固定notice
 		commonFields := []zlog.Field{
 			zlog.String("method", c.Request.Method),
+			zlog.String("uri", path),
 			zlog.Int("status", c.Writer.Status()),
 			zlog.String("clientIp", c.ClientIP()),
 			zlog.String("requestParam", reqParam),
