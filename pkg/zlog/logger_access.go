@@ -10,6 +10,8 @@ package zlog
 import (
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
+
+	"github.com/xiangtao94/golib/pkg/env"
 )
 
 const (
@@ -41,6 +43,10 @@ func zapAccessLogger(ctx *gin.Context) *zap.Logger {
 		}
 	}
 	l := LoggerWithContext(m, ctx)
+	l.With(
+		String("uri", GetRequestUri(ctx)),
+		String("localIp", env.LocalIP),
+	)
 	ctx.Set(zapAccessLoggerAddr, l)
 	return l
 }

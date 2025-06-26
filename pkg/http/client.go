@@ -13,11 +13,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/xiangtao94/golib/pkg/zlog"
-	"go.uber.org/zap"
-
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"resty.dev/v3"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
@@ -253,8 +253,8 @@ func (c *ClientConf) logHttpInvoke(ctx *gin.Context, req *resty.Request, res *Re
 		zlog.Int("status", status),
 		zlog.String("request", truncateString(c.getReqBodyStr(opts), c.MaxReqBodyLen)),
 		zlog.String("response", truncateString(respBodyStr, c.MaxRespBodyLen)),
+		zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")),
 	}
-	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
 	logger := zlog.LoggerWithContext(GetHttpLogger(), ctx)
 	if err != nil {
 		logger.Error(msg, fields...)

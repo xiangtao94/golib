@@ -177,11 +177,16 @@ type elasticLogger struct {
 func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Response, err error, start time.Time, duration time.Duration) error {
 	request.Context()
 	fields := []zlog.Field{}
-	fields = append(fields,
-		zlog.String("path", request.URL.Path),
-		zlog.String("method", request.Method),
-		zlog.String("query", request.URL.RawQuery),
-	)
+
+	// 只在有值时添加字段
+	fields = append(fields, zlog.String("path", request.URL.Path))
+	fields = append(fields, zlog.String("method", request.Method))
+
+	// query 参数只在不为空时添加
+	if request.URL.RawQuery != "" {
+		fields = append(fields, zlog.String("query", request.URL.RawQuery))
+	}
+
 	var reqBody, respBody []byte
 	if request.Body != nil {
 		reqBody, _ = io.ReadAll(request.Body)
@@ -191,18 +196,33 @@ func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Respo
 		respBody, _ = io.ReadAll(response.Body)
 		defer response.Body.Close()
 	}
+
 	requestData, respData := formatLogMsg(request.Context(), reqBody, respBody)
-	fields = append(fields, zlog.String("requestParam", string(requestData)))
+
+	// requestParam 只在有内容时添加
+	if len(requestData) > 0 {
+		fields = append(fields, zlog.String("requestParam", string(requestData)))
+	}
+
 	fields = append(fields, zlog.Int("responseStatus", response.StatusCode))
-	fields = append(fields, zlog.String("response", string(respData)))
-	fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
+
+	// response 只在有内容时添加
+	if len(respData) > 0 {
+		fields = append(fields, zlog.String("response", string(respData)))
+	}
+
+	// 添加时间相关字段
+	fields = append(fields, zlog.String("cost", fmt.Sprintf("%d%s", duration.Milliseconds(), "ms")))
+
+	ctx := covertGinContext(request.Context())
+
 	msg := "success"
 	if err != nil {
 		msg = err.Error()
-		zlog.ErrorLogger(covertGinContext(request.Context()), msg, fields...)
+		zlog.ErrorLogger(ctx, msg, fields...)
 		return nil
 	}
-	zlog.InfoLogger(covertGinContext(request.Context()), msg, fields...)
+	zlog.InfoLogger(ctx, msg, fields...)
 	return nil
 }
 
@@ -225,18 +245,6 @@ func covertGinContext(ctx context.Context) *gin.Context {
 		return c
 	}
 	return nil
-}
-
-func (e *elasticLogger) AppendCustomField(ctx context.Context) []zlog.Field {
-	var requestID string
-	ctx1 := covertGinContext(ctx)
-	if ctx1 != nil {
-		requestID, _ = ctx1.Value(zlog.ContextKeyRequestID).(string)
-	}
-	fields := []zlog.Field{
-		zlog.String("requestId", requestID),
-	}
-	return fields
 }
 
 func formatLogMsg(context context.Context, requestParam, responseData []byte) (req, resp []byte) {

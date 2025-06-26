@@ -3,15 +3,16 @@ package redis
 import (
 	"context"
 	"fmt"
-	"github.com/duke-git/lancet/v2/slice"
-	"github.com/redis/go-redis/v9"
-	"github.com/xiangtao94/golib/pkg/env"
-	"github.com/xiangtao94/golib/pkg/zlog"
 	"net"
 	"strings"
 	"time"
 
+	"github.com/duke-git/lancet/v2/slice"
 	"github.com/gin-gonic/gin"
+	"github.com/redis/go-redis/v9"
+
+	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
@@ -131,7 +132,7 @@ func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
 		r.logger.Debug(msg, fields...)
 		return err
 	}
@@ -152,7 +153,7 @@ func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.AppendCostTime(start, time.Now())...)
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
 		r.logger.Debug(msg, fields...)
 		return err
 	}

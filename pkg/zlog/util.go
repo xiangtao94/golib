@@ -1,12 +1,10 @@
 package zlog
 
 import (
-	"fmt"
-	"github.com/xiangtao94/golib/pkg/env"
-	"go.uber.org/zap"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 // util key
@@ -70,14 +68,6 @@ func GetRequestCost(start, end time.Time) float64 {
 	return float64(end.Sub(start).Nanoseconds()/1e4) / 100.0
 }
 
-func AppendCostTime(begin, end time.Time) []Field {
-	return []Field{
-		String("startTime", GetFormatRequestTime(begin)),
-		String("endTime", GetFormatRequestTime(end)),
-		String("cost", fmt.Sprintf("%v%s", GetRequestCost(begin, end), "ms")),
-	}
-}
-
 // 返回带上下文信息的 zap.Logger
 func LoggerWithContext(baseLogger *zap.Logger, ctx *gin.Context) *zap.Logger {
 	if ctx == nil || baseLogger == nil {
@@ -85,7 +75,5 @@ func LoggerWithContext(baseLogger *zap.Logger, ctx *gin.Context) *zap.Logger {
 	}
 	return baseLogger.With(
 		String("requestId", GetRequestID(ctx)),
-		String("uri", GetRequestUri(ctx)),
-		String("localIp", env.LocalIP),
 	)
 }

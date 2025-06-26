@@ -507,15 +507,15 @@ func (l *memoryLogger) Trace(ctx context.Context, begin time.Time, fc func() (st
 	fields = append(fields,
 		zlog.String("sql", sql),
 		zlog.Int64("rows", rows),
+		zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(begin, end), "ms")),
 	)
-	fields = append(fields, zlog.AppendCostTime(begin, end)...)
 	l.logger.Debug(msg, fields...)
 }
 
 func (l *memoryLogger) AppendCustomField(ctx context.Context) []zlog.Field {
 	var requestID string
 	if c, ok := ctx.(*gin.Context); ok && c != nil {
-		requestID, _ = ctx.Value(zlog.ContextKeyRequestID).(string)
+		requestID = zlog.GetRequestID(c)
 	}
 	fields := []zlog.Field{
 		zlog.String("requestId", requestID),

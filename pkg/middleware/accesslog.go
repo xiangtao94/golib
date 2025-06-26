@@ -165,7 +165,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 			}
 		}
 		commonFields = append(commonFields, zlog.Any("responseBody", response), zlog.Int("bodySize", c.Writer.Size()))
-		commonFields = append(commonFields, zlog.AppendCostTime(start, time.Now())...)
+		commonFields = append(commonFields, AppendCostTime(start, time.Now())...)
 		// 新的notice添加方式
 		customerFields := zlog.GetCustomerFields(c)
 		commonFields = append(commonFields, customerFields...)
@@ -240,4 +240,12 @@ func RegistryAccessLog(engine *gin.Engine, conf ...AccessLoggerConfig) {
 		logConf = DefaultAccessLoggerConfig()
 	}
 	engine.Use(AccessLog(logConf))
+}
+
+func AppendCostTime(begin, end time.Time) []zlog.Field {
+	return []zlog.Field{
+		zlog.String("startTime", zlog.GetFormatRequestTime(begin)),
+		zlog.String("endTime", zlog.GetFormatRequestTime(end)),
+		zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(begin, end), "ms")),
+	}
 }
