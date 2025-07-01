@@ -104,7 +104,7 @@ func (conf *MysqlConf) checkConf() {
 
 func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	conf.checkConf()
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?timeout=%s&readTimeout=%s&writeTimeout=%s&parseTime=True&loc=Asia%%2FShanghai",
+	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?timeout=%s&readTimeout=%s&writeTimeout=%s&parseTime=True",
 		conf.User,
 		conf.Password,
 		conf.Addr,
