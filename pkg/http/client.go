@@ -6,8 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/xiangtao94/golib/pkg/zlog"
-	"go.uber.org/zap"
+	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -16,7 +15,10 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 	"resty.dev/v3"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
@@ -274,7 +276,11 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 	}
 	if resp.IsError() {
 		_ = resp.Body.Close()
-		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), resp.String())
+		var body []byte
+		if resp.RawResponse != nil {
+			body, _ = io.ReadAll(resp.RawResponse.Body)
+		}
+		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), string(body))
 	}
 	scanner := bufio.NewScanner(resp.Body)
 	scanner.Buffer(make([]byte, slices.Min([]int{4096, defaultSseMaxBufSize})), defaultSseMaxBufSize)
