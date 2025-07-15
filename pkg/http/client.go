@@ -275,11 +275,8 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 		return nil, err
 	}
 	if resp.IsError() {
+		body, _ := io.ReadAll(resp.Body)
 		_ = resp.Body.Close()
-		var body []byte
-		if resp.RawResponse != nil {
-			body, _ = io.ReadAll(resp.RawResponse.Body)
-		}
 		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), string(body))
 	}
 	scanner := bufio.NewScanner(resp.Body)
