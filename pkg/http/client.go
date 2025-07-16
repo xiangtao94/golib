@@ -348,7 +348,7 @@ func (c *ClientConf) buildRequest(ctx *gin.Context, method string, opts RequestO
 	if err != nil {
 		return nil, err
 	}
-	urlStr = strings.TrimRight(urlStr, "/") + opts.Path
+	urlStr = urlStr + opts.Path
 	req := c.HTTPClient.R() // 设置请求上下文
 	req.URL = urlStr
 	req.Method = method
