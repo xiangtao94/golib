@@ -2,11 +2,29 @@ package env
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 
+	"github.com/joho/godotenv"
 	"github.com/spf13/viper"
+	"gopkg.in/yaml.v3"
 )
+
+func LoadConfByEnv(filename, subConf string, s interface{}) {
+	envPath := filepath.Join(GetRootPath(), ".env")
+	_ = godotenv.Load(envPath)
+	var path string
+	path = filepath.Join(GetConfDirPath(), subConf, filename)
+	yamlFile, err := os.ReadFile(path)
+	if err != nil {
+		panic(filename + " get error: " + err.Error())
+	}
+	yamlConf := []byte(os.ExpandEnv(string(yamlFile)))
+	if err = yaml.Unmarshal(yamlConf, s); err != nil {
+		panic(filename + " unmarshal error: " + err.Error())
+	}
+}
 
 // LoadConf 使用Viper按照优先级读取配置：配置文件 > 环境变量 > 默认值
 // filename: 配置文件名（不包含扩展名）
