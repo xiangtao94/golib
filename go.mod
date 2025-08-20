@@ -1,6 +1,6 @@
 module github.com/xiangtao94/golib
 
-go 1.24
+go 1.25
 
 require (
 	github.com/disintegration/gift v1.2.1
