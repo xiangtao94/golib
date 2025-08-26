@@ -98,7 +98,7 @@ func StartHttpServer(engine *gin.Engine, port int) error {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
-	zlog.Info(nil, "Server is running on %s", addr)
+	log.Printf("Server is running on %s", addr)
 	// Wait for interrupt signal to gracefully shutdown the server with
 	// a timeout of 5 seconds.
 	quit := make(chan os.Signal, 1)
@@ -107,7 +107,7 @@ func StartHttpServer(engine *gin.Engine, port int) error {
 	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
 	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
 	<-quit
-	zlog.Info(nil, "Shutting down server...")
+	log.Print("Shutting down server...")
 
 	// The context is used to inform the server it has 5 seconds to finish
 	// the request it is currently handling
@@ -117,6 +117,6 @@ func StartHttpServer(engine *gin.Engine, port int) error {
 		zlog.Error(nil, "Server forced to shutdown: %v", err)
 	}
 
-	zlog.Info(nil, "Server exiting")
+	log.Print("Server exiting")
 	return nil
 }
