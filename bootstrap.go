@@ -98,7 +98,7 @@ func StartHttpServer(engine *gin.Engine, port int) error {
 			log.Fatalf("listen: %s\n", err)
 		}
 	}()
-
+	zlog.Info(nil, "Server is running on %s", addr)
 	// Wait for interrupt signal to gracefully shutdown the server with
 	// a timeout of 5 seconds.
 	quit := make(chan os.Signal, 1)
