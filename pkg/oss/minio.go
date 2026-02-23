@@ -28,6 +28,8 @@ type MinioConf struct {
 	Endpoint string `yaml:"endpoint"`
 	UseSSL   bool   `yaml:"useSSL"` // 是否使用SSL
 	Region   string `yaml:"region"` // 区域
+	// ExternalURL 外部URL，用于生成文件URL
+	ExternalURL string `yaml:"externalURL"`
 }
 
 // MinioClient MinIO客户端封装
