@@ -1,4 +1,4 @@
-// Package flow -----------------------------
+// Package golib ----------------------------
 // @file      : cmd.go
 // @author    : xiangtao
 // @contact   : xiangtao1994@gmail.com

@@ -8,7 +8,7 @@
 
 | Module | Interface |
 |---|---|
-| `github.com/xiangtao94/golib` | Core：HTTP server、Flow、env、zlog、middleware、HTTP client、job、render |
+| `github.com/xiangtao94/golib` | Core：HTTP server、Web adapter、env、zlog、middleware、HTTP client、job、render |
 | `.../pkg/elasticsearch` | Elasticsearch adapter |
 | `.../pkg/mcp` | MCP Gin transport |
 | `.../pkg/milvus` | Milvus adapter |
@@ -32,8 +32,8 @@ go get github.com/xiangtao94/golib/pkg/redis@<adapter-version>
 
 ```go
 import (
-	"github.com/xiangtao94/golib/flow"
 	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/web"
 	"github.com/xiangtao94/golib/pkg/zlog"
 
 	"github.com/xiangtao94/golib/pkg/orm"
@@ -65,7 +65,7 @@ return server.Run(appContext)
 
 `Bootstraps` 总会安装 request ID middleware。调用方负责 OS signal，并通过取消 `appContext` 触发 HTTP server、cron 和 cycle 的停止。`pprof` 默认不注册；如需启用，只在经过认证且网络隔离的管理 listener 上调用 `RegisterPprof`。
 
-## 业务实现 Flow interface
+## 业务实现 Web Controller
 
 ```go
 type CreateUserController struct {
@@ -79,12 +79,11 @@ func (controller *CreateUserController) Action(
 	return controller.users.Create(ctx, request)
 }
 
-engine.POST("/users", flow.Use(func() flow.Controller[CreateUserRequest] {
-	return &CreateUserController{users: users}
-}))
+controller := &CreateUserController{users: users}
+engine.POST("/users", web.Handle[CreateUserRequest](controller))
 ```
 
-保留 `flow.Controller` 是因为它是 Gin adapter 与业务实现之间的真实 seam；旧的 `IApi`、`IDao`、`ILayer`、`IService`、`IData` 已删除。DAO、外部 HTTP client 和 registry 使用具体类型组合。
+保留 `web.Controller` 是因为它是 Gin adapter 与业务实现之间的真实 seam。Controller 直接注入并复用，请求状态只通过 `Action` 参数传递。固定业务响应包络和通用 DAO 不属于 Core：下游协议由业务类型化 client 拥有，数据库查询由业务 repository 拥有。
 
 ## 安全默认值
 
@@ -99,7 +98,7 @@ engine.POST("/users", flow.Use(func() flow.Controller[CreateUserRequest] {
 
 - [架构与 interface 归属](ARCHITECTURE.md)
 - [破坏性迁移说明](MIGRATION.md)
-- [Flow](flow/README.md)
+- [Web Controller adapter](pkg/web/README.md)
 - [HTTP client](pkg/http/README.md)
 
 ## 验证

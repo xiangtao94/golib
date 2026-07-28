@@ -4,7 +4,7 @@
 
 ```text
 业务 module
-  ├─> Core module（Flow / env / zlog / HTTP / middleware / job / render）
+  ├─> Core module（web / env / zlog / HTTP / middleware / job / render）
   └─> 按需 adapter module（orm / redis / oss / milvus / elasticsearch / mcp）
            └─> Core 中的 env / zlog package
 
@@ -21,12 +21,12 @@ interface 只放在使用它的 seam，不为“将来可能替换”预建同�
 
 | Interface | Owner | 为什么保留 |
 |---|---|---|
-| `flow.Controller[T]` | `flow` HTTP adapter | 业务 controller 与 Gin adapter 是两个真实 adapter；业务可直接实现 |
+| `web.Controller[T]` | `web` Gin adapter | 多个业务 Controller 直接实现，adapter 统一绑定、context 和渲染 |
 | `cron.Job` / `cycle.Job` | scheduler | `FuncJob` 与业务 struct 都是实际 adapter |
 | `cron.Schedule` | scheduler | cron spec 与 constant-delay 已有两个实现 |
 | `render.Render` | render adapter | 默认 response 与业务 response shape 可替换 |
 
-`IApi`、`IDao`、`ILayer`、`IService`、`IData` 通过删除测试后只会把同样复杂度搬到调用方，因此已删除。`Api`、`Dao`、`DBRegistry`、HTTP `Client` 都使用具体类型。
+旧的 `flow` package 混合了三个无关 seam，因此已拆除：Controller adapter 移到 `pkg/web`；固定业务响应包络交还业务 client；通用 GORM DAO 删除并由业务 repository 持有查询语义。Core 因此不再依赖 GORM。
 
 业务自己的模型 provider、tool executor、memory、repository interface 应由业务 consumer 定义；只有出现第二个 adapter 或明确测试 seam 时再引入。
 

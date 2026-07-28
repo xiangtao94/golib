@@ -2,14 +2,13 @@
 
 本轮不保留兼容层。调用方应一次性迁移，并发布新的 major version。
 
-## Flow
+## Web、下游调用与数据库
 
-- `IController[T]` 改为 `Controller[T]`。
-- `Action(*T)` 改为 `Action(context.Context, *T)`。
-- `flow.Use(controller)` 改为 `flow.Use(func() flow.Controller[T] { return controller })`。
-- 删除 `ILayer`、`IService`、`IData`、`IApi`、`IDao`、`Create`、`SetCtx`、`Reset`。
-- `Api` 和所有 DAO 方法显式接收 context。
-- 删除全局 DB setter；构造并注入 `DBRegistry`。
+- 删除 `flow` package。
+- `flow.Controller[T]` 改为 `web.Controller[T]`，`Action` 保持接收 `context.Context`。
+- `flow.Use(factory)` 改为 `web.Handle(controller)`；Controller 在组装阶段直接注入，不再每请求构造。
+- 删除固定 `ApiRes/Api` 业务协议封装；业务使用 Core HTTP client 实现类型化 client。
+- 删除 `Dao/CommonDao/DBRegistry`；业务 repository 直接使用可选 ORM adapter，并拥有查询与错误语义。
 
 ## HTTP client
 
