@@ -2,10 +2,8 @@ package zlog
 
 import (
 	"context"
-	"net/http/httptest"
 	"testing"
 
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
 
@@ -15,12 +13,10 @@ func TestRequestIDFromStandardContext(t *testing.T) {
 	require.Equal(t, "req-123", GetRequestID(ctx))
 }
 
-func TestRequestIDRemainsCompatibleWithGinContext(t *testing.T) {
-	gin.SetMode(gin.TestMode)
-	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
-	ctx.Request = httptest.NewRequest("GET", "/", nil)
-	ctx.Request.Header.Set(HeaderRequestID, "req-456")
+func TestEnsureRequestIDUsesIncomingCandidate(t *testing.T) {
+	ctx, requestID := EnsureRequestID(context.Background(), "req-456")
 
+	require.Equal(t, "req-456", requestID)
 	require.Equal(t, "req-456", GetRequestID(ctx))
 }
 

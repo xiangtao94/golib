@@ -18,6 +18,7 @@ import (
 const (
 	_defaultPrintRequestLen  = -1
 	_defaultPrintResponseLen = -1
+	_accessFieldsKey         = "_access_fields"
 )
 
 // BodySanitizer converts a bounded body prefix into a safe log value. Body
@@ -155,8 +156,8 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		start := time.Now()
 		path := c.Request.URL.Path
-		c.Set(zlog.ContextKeyUri, path)
-		_ = zlog.GetRequestID(c)
+		ensureRequestID(c)
+		c.Request = c.Request.WithContext(zlog.WithRequestURI(c.Request.Context(), path))
 
 		if _, ok := skipPaths[path]; ok {
 			c.Next()
@@ -221,9 +222,24 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		}
 
 		fields = append(fields, AppendCostTime(start, time.Now())...)
-		fields = append(fields, zlog.GetCustomerFields(c)...)
-		zlog.AccessInfo(c, fields...)
+		fields = append(fields, getAccessFields(c)...)
+		zlog.AccessInfo(c.Request.Context(), fields...)
 	}
+}
+
+// AddAccessFields adds structured fields to the current request's access log.
+func AddAccessFields(ctx *gin.Context, fields ...zlog.Field) {
+	existing := getAccessFields(ctx)
+	ctx.Set(_accessFieldsKey, append(existing, fields...))
+}
+
+func getAccessFields(ctx *gin.Context) []zlog.Field {
+	value, exists := ctx.Get(_accessFieldsKey)
+	if !exists {
+		return nil
+	}
+	fields, _ := value.([]zlog.Field)
+	return fields
 }
 
 func sanitizeCapturedBody(sanitizer BodySanitizer, contentType string, capture *boundedCapture) string {

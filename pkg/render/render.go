@@ -58,6 +58,15 @@ func setCommonHeader(ctx *gin.Context, requestID string) {
 	ctx.Header(zlog.HeaderRequestID, requestID)
 }
 
+func ensureRequestID(ctx *gin.Context) string {
+	requestContext, requestID := zlog.EnsureRequestID(
+		ctx.Request.Context(),
+		ctx.GetHeader(zlog.HeaderRequestID),
+	)
+	ctx.Request = ctx.Request.WithContext(requestContext)
+	return requestID
+}
+
 func StackLogger(ctx *gin.Context, err error) {
 	if !strings.Contains(fmt.Sprintf("%+v", err), "\n") {
 		return
@@ -79,7 +88,7 @@ func (renderer *JSONRenderer) JSON(ctx *gin.Context, httpStatus, code int, messa
 	if httpStatus < 100 || httpStatus > 599 {
 		httpStatus = http.StatusInternalServerError
 	}
-	requestID := zlog.GetRequestID(ctx)
+	requestID := ensureRequestID(ctx)
 	response := renderer.factory()
 	response.SetReturnCode(code)
 	response.SetReturnMsg(message)
@@ -136,10 +145,11 @@ func RenderStream(ctx *gin.Context, id, event string, data interface{}) error {
 }
 
 func RenderStreamFail(ctx *gin.Context, err error) error {
+	requestID := ensureRequestID(ctx)
 	response := DefaultRender{
 		Code:      errors2.ErrorSystemError.Code,
 		Message:   errors2.ErrorSystemError.GetMessage(ctx),
-		RequestId: zlog.GetRequestID(ctx),
+		RequestId: requestID,
 	}
 	var typedError errors2.Error
 	if errors.As(err, &typedError) {

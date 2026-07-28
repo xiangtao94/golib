@@ -9,35 +9,29 @@ package zlog
 
 import (
 	"context"
-	"sync"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-)
-
-const (
-	zapLoggerAddr = "_zap_addr"
 )
 
 var (
 	// key 为skip
 	zapLoggerCache = make(map[int]*zap.Logger)
-	zapCacheLock   sync.Mutex
 )
 
 // 通用 Logger 工厂，根据 skip 构造 Logger 实例, 定制化skip实例
 func NewLoggerWithSkip(skip int) *zap.Logger {
-	// 检查缓存
-	zapCacheLock.Lock()
+	loggerLifecycleMu.Lock()
+	defer loggerLifecycleMu.Unlock()
+	return newLoggerWithSkipLocked(skip)
+}
+
+func newLoggerWithSkipLocked(skip int) *zap.Logger {
 	if logger, exists := zapLoggerCache[skip]; exists {
-		zapCacheLock.Unlock()
 		return logger
 	}
-	// 构造新的 Logger
 	core := buildZapCore(false)
 	logger := zap.New(core, zap.Fields(), zap.WithCaller(true), zap.Development(), zap.AddCallerSkip(skip))
 	zapLoggerCache[skip] = logger
-	zapCacheLock.Unlock()
 	return logger
 }
 
@@ -46,18 +40,6 @@ func zapLogger(ctx context.Context) *zap.Logger {
 	if ctx == nil {
 		return m
 	}
-
-	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
-		if cached, exists := ginCtx.Get(zapLoggerAddr); exists {
-			if logger, valid := cached.(*zap.Logger); valid {
-				return logger
-			}
-		}
-		logger := LoggerWithContext(m, ginCtx)
-		ginCtx.Set(zapLoggerAddr, logger)
-		return logger
-	}
-
 	return LoggerWithContext(m, ctx)
 }
 

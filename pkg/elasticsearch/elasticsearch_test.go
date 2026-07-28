@@ -10,7 +10,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
@@ -27,10 +26,8 @@ func TestElasticLoggerLogRoundTripHandlesNilRequestAndResponse(t *testing.T) {
 	})
 
 	t.Run("nil response", func(t *testing.T) {
-		ginContext, _ := gin.CreateTestContext(httptest.NewRecorder())
-		zlog.SetNoLogFlag(ginContext)
 		request := httptest.NewRequest(http.MethodGet, "http://localhost:9200/index/_search", nil).
-			WithContext(ginContext)
+			WithContext(zlog.WithNoLog(context.Background()))
 
 		assertLogRoundTripDoesNotPanic(t, func() error {
 			return logger.LogRoundTrip(request, nil, transportErr, time.Now(), time.Millisecond)

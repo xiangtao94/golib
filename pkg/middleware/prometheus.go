@@ -119,7 +119,7 @@ func (metrics *Metrics) Handler() http.Handler {
 func RegisterMetrics(engine *gin.Engine, metrics *Metrics) {
 	engine.Use(metrics.Middleware())
 	engine.GET(metrics.path, func(ctx *gin.Context) {
-		zlog.SetNoLogFlag(ctx)
+		ctx.Request = ctx.Request.WithContext(zlog.WithNoLog(ctx.Request.Context()))
 		metrics.Handler().ServeHTTP(ctx.Writer, ctx.Request)
 	})
 }

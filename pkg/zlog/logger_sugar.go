@@ -10,12 +10,7 @@ package zlog
 import (
 	"context"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
-)
-
-const (
-	sugaredLoggerAddr = "_sugared_addr"
 )
 
 var (
@@ -25,11 +20,12 @@ var (
 /*---------------sugar Logger-------------------*/
 
 func GetGlobalLogger() *zap.SugaredLogger {
+	loggerLifecycleMu.Lock()
+	defer loggerLifecycleMu.Unlock()
 	if globalLogger != nil {
 		return globalLogger
 	}
-	// 初始化 globalLogger
-	globalLogger = NewLoggerWithSkip(1).Sugar()
+	globalLogger = newLoggerWithSkipLocked(1).Sugar()
 	return globalLogger
 }
 
@@ -37,18 +33,6 @@ func sugaredLogger(ctx context.Context) *zap.SugaredLogger {
 	if ctx == nil {
 		return NewLoggerWithSkip(1).Sugar()
 	}
-
-	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
-		if cached, exists := ginCtx.Get(sugaredLoggerAddr); exists {
-			if logger, valid := cached.(*zap.SugaredLogger); valid {
-				return logger
-			}
-		}
-		logger := LoggerWithContext(NewLoggerWithSkip(1), ginCtx).Sugar()
-		ginCtx.Set(sugaredLoggerAddr, logger)
-		return logger
-	}
-
 	return LoggerWithContext(NewLoggerWithSkip(1), ctx).Sugar()
 }
 

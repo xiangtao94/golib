@@ -1,25 +1,26 @@
 package zlog
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
-
-	"github.com/xiangtao94/golib/pkg/env"
 )
 
 // 对用户暴露的log配置
 type Buffer struct {
-	Switch        string        `yaml:"switch"`
+	Enabled       bool          `yaml:"enabled"`
 	Size          int           `yaml:"size"`
 	FlushInterval time.Duration `yaml:"flushInterval"`
 }
 
 type LogConfig struct {
+	AppName   string `yaml:"appName"`
 	Level     string `yaml:"level"` // 显示的日志等级
 	Stdout    bool   `yaml:"stdout"`
 	Buffer    Buffer `yaml:"buffer"`
@@ -31,9 +32,10 @@ type LogConfig struct {
 // DefaultLogConfig 返回默认的日志配置
 func DefaultLogConfig() LogConfig {
 	return LogConfig{
+		AppName:   "server",
 		Level:     "info",
 		Stdout:    true,
-		LogToFile: !env.IsDockerPlatform(), // 容器环境默认不输出到文件
+		LogToFile: false,
 		Format:    "json",
 		LogDir:    "./log",
 		Buffer: Buffer{
@@ -57,6 +59,11 @@ func mergeWithDefault(userConf LogConfig) LogConfig {
 	if userConf.LogDir == "" {
 		userConf.LogDir = defaultConf.LogDir
 	}
+	if userConf.AppName == "" {
+		userConf.AppName = defaultConf.AppName
+	}
+	userConf.Level = strings.ToLower(userConf.Level)
+	userConf.Format = strings.ToLower(userConf.Format)
 
 	// Buffer 配置合并
 	if userConf.Buffer.Size == 0 {
@@ -69,7 +76,7 @@ func mergeWithDefault(userConf LogConfig) LogConfig {
 	return userConf
 }
 
-func (conf LogConfig) SetLogLevel() {
+func (conf LogConfig) setLogLevel() {
 	logConfig.ZapLevel = getLogLevel(conf.Level)
 }
 
@@ -92,77 +99,54 @@ func getLogLevel(lv string) (level zapcore.Level) {
 	return level
 }
 
-func (conf LogConfig) SetBuffer() {
-	if conf.Buffer.Switch == "false" {
-		// 明确关闭buffer
-		logConfig.BufferSwitch = false
-	} else if conf.Buffer.Switch == "true" {
-		// 明确开启buffer
-		logConfig.BufferSwitch = true
-	} else {
-		// 默认buffer设置
-		if env.IsDockerPlatform() {
-			// 容器环境默认开启
-			logConfig.BufferSwitch = true
-		} else {
-			// 其他环境默认不开启
-			logConfig.BufferSwitch = false
-		}
-	}
-
-	if conf.Buffer.Size != 0 {
-		logConfig.BufferSize = conf.Buffer.Size
-	}
-	if conf.Buffer.FlushInterval != 0 {
-		logConfig.BufferFlushInterval = conf.Buffer.FlushInterval
-	}
+func (conf LogConfig) setBuffer() {
+	logConfig.BufferSwitch = conf.Buffer.Enabled
+	logConfig.BufferSize = conf.Buffer.Size
+	logConfig.BufferFlushInterval = conf.Buffer.FlushInterval
 }
 
-func (conf LogConfig) SetLogOutput() {
-	// 使用用户配置的 LogDir
-	if conf.LogDir != "" {
-		logConfig.Path = conf.LogDir
-	} else {
-		logConfig.Path = env.GetLogDirPath()
+func validateAndPrepareLogConfig(conf LogConfig) error {
+	switch conf.Level {
+	case "debug", "info", "warn", "error", "fatal":
+	default:
+		return fmt.Errorf("log conf: unsupported level %q", conf.Level)
 	}
-
-	// 使用用户配置的 Format
-	if conf.Format != "" {
-		logConfig.LogFormat = conf.Format
+	switch conf.Format {
+	case "json", "console":
+	default:
+		return fmt.Errorf("log conf: unsupported format %q", conf.Format)
 	}
-
-	// 判断是否输出到文件
-	if env.IsDockerPlatform() && !conf.LogToFile {
-		// 容器环境且明确设置不输出到文件
-		logConfig.Log2File = false
-	} else if conf.LogToFile {
-		// 明确设置输出到文件
-		logConfig.Log2File = true
-		// 目录不存在则先创建目录
-		if _, err := os.Stat(logConfig.Path); os.IsNotExist(err) {
-			err = os.MkdirAll(logConfig.Path, 0777)
-			if err != nil {
-				panic(fmt.Errorf("log conf err: create log dir '%s' error: %s", logConfig.Path, err))
-			}
-		}
-	} else {
-		// 未明确设置，使用环境判断
-		logConfig.Log2File = !env.IsDockerPlatform()
-		if logConfig.Log2File {
-			// 目录不存在则先创建目录
-			if _, err := os.Stat(logConfig.Path); os.IsNotExist(err) {
-				err = os.MkdirAll(logConfig.Path, 0777)
-				if err != nil {
-					panic(fmt.Errorf("log conf err: create log dir '%s' error: %s", logConfig.Path, err))
-				}
-			}
+	if conf.AppName == "." || conf.AppName == ".." || filepath.Base(conf.AppName) != conf.AppName {
+		return fmt.Errorf("log conf: app name %q must not contain a path", conf.AppName)
+	}
+	if conf.Buffer.Enabled && !conf.LogToFile {
+		return errors.New("log conf: buffer requires file output")
+	}
+	if conf.Buffer.Size <= 0 {
+		return errors.New("log conf: buffer size must be positive")
+	}
+	if conf.Buffer.FlushInterval <= 0 {
+		return errors.New("log conf: buffer flush interval must be positive")
+	}
+	if conf.LogToFile {
+		if err := os.MkdirAll(conf.LogDir, 0o755); err != nil {
+			return fmt.Errorf("log conf: create log dir %q: %w", conf.LogDir, err)
 		}
 	}
+	return nil
+}
+
+func (conf LogConfig) setLogOutput() {
+	logConfig.Path = conf.LogDir
+	logConfig.LogFormat = conf.Format
+	logConfig.Stdout = conf.Stdout
+	logConfig.Log2File = conf.LogToFile
 }
 
 // 全局配置 仅限Init函数进行变更
 var logConfig = struct {
 	ZapLevel zapcore.Level
+	Stdout   bool
 
 	// 以下变量仅对开发环境生效
 	Log2File   bool
@@ -175,55 +159,80 @@ var logConfig = struct {
 	LogFormat           string
 }{
 	ZapLevel: zapcore.InfoLevel,
+	Stdout:   true,
 
-	Log2File:   true,
+	Log2File:   false,
 	Path:       "./log",
-	ModuleName: "xt-demo",
+	ModuleName: "server",
 
-	// 缓冲区，如果不配置默认使用以下配置
-	BufferSwitch:        true,
+	BufferSwitch:        false,
 	BufferSize:          256 * 1024, // 256kb
 	BufferFlushInterval: 5 * time.Second,
 	LogFormat:           "json",
 }
 
-// InitLog 初始化日志，支持传入配置或使用默认配置
-func InitLog(conf ...LogConfig) *zap.SugaredLogger {
-	var logConf LogConfig
-	if len(conf) > 0 {
-		// 使用传入的配置，并与默认配置合并
-		logConf = mergeWithDefault(conf[0])
-	} else {
-		// 使用默认配置
-		logConf = DefaultLogConfig()
+// InitLog replaces the process logger configuration. It must be called during
+// application startup, before request-serving goroutines are launched.
+func InitLog(conf LogConfig) (*zap.SugaredLogger, error) {
+	logConf := mergeWithDefault(conf)
+	if err := validateAndPrepareLogConfig(logConf); err != nil {
+		return nil, err
 	}
 
-	logConfig.ModuleName = env.GetAppName()
-	// 全局日志级别
-	logConf.SetLogLevel()
-	// 日志缓冲区设置
-	logConf.SetBuffer()
-	// 日志输出方式
-	logConf.SetLogOutput()
-	// 初始化全局logger
-	globalLogger = GetGlobalLogger()
-	Info(nil, "Logger initialized")
-	return globalLogger
+	loggerLifecycleMu.Lock()
+	defer loggerLifecycleMu.Unlock()
+
+	_ = closeLoggerLocked()
+	resetLoggerLocked()
+	logConfig.ModuleName = logConf.AppName
+	logConf.setLogLevel()
+	logConf.setBuffer()
+	logConf.setLogOutput()
+	globalLogger = newLoggerWithSkipLocked(1).Sugar()
+	globalLogger.Info("Logger initialized")
+	return globalLogger, nil
 }
 
-func CloseLogger() {
+func resetLoggerLocked() {
+	baseZapCore = nil
+	baseAccessCore = nil
+	zapLoggerCache = make(map[int]*zap.Logger)
+	globalLogger = nil
+	accessLogger = nil
+}
+
+func closeLoggerLocked() error {
+	var closeErrors []error
 	if globalLogger != nil {
 		_ = globalLogger.Sync()
 	}
-	// 同步缓存的 Logger
-	zapCacheLock.Lock()
 	for _, logger := range zapLoggerCache {
 		if logger != nil {
 			_ = logger.Sync()
 		}
 	}
-	zapCacheLock.Unlock()
 	if accessLogger != nil {
 		_ = accessLogger.Sync()
 	}
+	for _, writer := range bufferedWriters {
+		if err := writer.Stop(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+	bufferedWriters = nil
+	for _, closer := range logClosers {
+		if err := closer.Close(); err != nil {
+			closeErrors = append(closeErrors, err)
+		}
+	}
+	logClosers = nil
+	return errors.Join(closeErrors...)
+}
+
+func CloseLogger() error {
+	loggerLifecycleMu.Lock()
+	defer loggerLifecycleMu.Unlock()
+	err := closeLoggerLocked()
+	resetLoggerLocked()
+	return err
 }

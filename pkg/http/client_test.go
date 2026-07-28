@@ -11,6 +11,7 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"testing"
 	"time"
 
@@ -18,8 +19,13 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-func init() {
-	zlog.InitLog(zlog.LogConfig{})
+func TestMain(m *testing.M) {
+	if _, err := zlog.InitLog(zlog.LogConfig{}); err != nil {
+		panic(err)
+	}
+	code := m.Run()
+	_ = zlog.CloseLogger()
+	os.Exit(code)
 }
 
 // mockHandler 用于模拟服务端处理

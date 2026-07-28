@@ -5,8 +5,6 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
-
-	"github.com/gin-gonic/gin"
 )
 
 const DefaultRootPath = "."
@@ -32,7 +30,7 @@ var runtimeState = struct {
 
 func init() {
 	runtimeState.localIP = GetInternalIp()
-	runtimeState.isDocker = os.Getenv(gin.EnvGinMode) == gin.ReleaseMode
+	runtimeState.isDocker = os.Getenv("GIN_MODE") == "release"
 	runtimeState.appName = GetEnv(APP_NAME, "XT")
 }
 

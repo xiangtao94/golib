@@ -1,6 +1,7 @@
 package zlog
 
 import (
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -57,8 +58,10 @@ const (
 var (
 	baseZapCore    zapcore.Core
 	baseAccessCore zapcore.Core
-	normalOnce     sync.Once
-	accessOnce     sync.Once
+
+	loggerLifecycleMu sync.Mutex
+	bufferedWriters   []*zapcore.BufferedWriteSyncer
+	logClosers        []io.Closer
 )
 
 // buildZapCore 构造 zapcore.Core，支持普通日志和 Access 日志类型
@@ -70,44 +73,58 @@ func buildZapCore(isAccess bool) zapcore.Core {
 	}
 	// 普通日志 core
 	if !isAccess {
-		normalOnce.Do(func() {
-			var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-				return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
-			})
-			var errorLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-				return lvl >= logConfig.ZapLevel && lvl >= zapcore.WarnLevel
-			})
-			var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
-				return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
-			})
-
-			var cores []zapcore.Core
-			// 控制台输出
-			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
-			if logConfig.Log2File {
-				cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
-				cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
-			}
-			baseZapCore = zapcore.NewTee(cores...)
-		})
-		return baseZapCore
-	}
-
-	// Access 日志 core
-	accessOnce.Do(func() {
+		if baseZapCore != nil {
+			return baseZapCore
+		}
 		var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 			return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
+		})
+		var errorLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+			return lvl >= logConfig.ZapLevel && lvl >= zapcore.WarnLevel
 		})
 		var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
 			return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
 		})
 
 		var cores []zapcore.Core
-		// 控制台输出
-		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
-		cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
-		baseAccessCore = zapcore.NewTee(cores...)
+		if logConfig.Stdout {
+			cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
+		}
+		if logConfig.Log2File {
+			cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogNormal), infoLevel))
+			cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogWarnFatal), errorLevel))
+		}
+		if len(cores) == 0 {
+			baseZapCore = zapcore.NewNopCore()
+		} else {
+			baseZapCore = zapcore.NewTee(cores...)
+		}
+		return baseZapCore
+	}
+
+	// Access 日志 core
+	if baseAccessCore != nil {
+		return baseAccessCore
+	}
+	var infoLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logConfig.ZapLevel && lvl <= zapcore.InfoLevel
 	})
+	var stdLevel = zap.LevelEnablerFunc(func(lvl zapcore.Level) bool {
+		return lvl >= logConfig.ZapLevel && lvl >= zapcore.DebugLevel
+	})
+
+	var cores []zapcore.Core
+	if logConfig.Stdout {
+		cores = append(cores, zapcore.NewCore(encoder, zapcore.AddSync(os.Stdout), stdLevel))
+	}
+	if logConfig.Log2File {
+		cores = append(cores, zapcore.NewCore(encoder, getLogFileWriter(name, txtLogAccess), infoLevel))
+	}
+	if len(cores) == 0 {
+		baseAccessCore = zapcore.NewNopCore()
+	} else {
+		baseAccessCore = zapcore.NewTee(cores...)
+	}
 	return baseAccessCore
 }
 
@@ -161,17 +178,19 @@ func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
 		Compress:   true,
 		LocalTime:  true,
 	}
+	logClosers = append(logClosers, fileWriter)
 	if !logConfig.BufferSwitch {
 		return zapcore.AddSync(fileWriter)
 	}
 	// 开启缓冲区
-	ws = &zapcore.BufferedWriteSyncer{
+	bufferedWriter := &zapcore.BufferedWriteSyncer{
 		WS:            zapcore.AddSync(fileWriter),
 		Size:          logConfig.BufferSize,
 		FlushInterval: logConfig.BufferFlushInterval,
 		Clock:         nil,
 	}
-	return ws
+	bufferedWriters = append(bufferedWriters, bufferedWriter)
+	return bufferedWriter
 }
 
 // genFilename 拼装完整文件名

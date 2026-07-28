@@ -8,14 +8,9 @@
 package zlog
 
 import (
-	"github.com/gin-gonic/gin"
+	"context"
+
 	"go.uber.org/zap"
-
-	"github.com/xiangtao94/golib/pkg/env"
-)
-
-const (
-	zapAccessLoggerAddr = "_access_zap_addr"
 )
 
 var (
@@ -24,6 +19,8 @@ var (
 
 // GetAccessLogger 获取 Access Logger 实例
 func GetAccessLogger() *zap.Logger {
+	loggerLifecycleMu.Lock()
+	defer loggerLifecycleMu.Unlock()
 	if accessLogger == nil {
 		core := buildZapCore(true)
 		accessLogger = zap.New(core, zap.Fields(), zap.WithCaller(true), zap.Development(), zap.AddCallerSkip(1))
@@ -31,26 +28,18 @@ func GetAccessLogger() *zap.Logger {
 	return accessLogger
 }
 
-func zapAccessLogger(ctx *gin.Context) *zap.Logger {
+func zapAccessLogger(ctx context.Context) *zap.Logger {
 	m := GetAccessLogger()
 	if ctx == nil {
 		return m
 	}
-	// 上下文存在就返回
-	if t, exist := ctx.Get(zapAccessLoggerAddr); exist {
-		if l, ok := t.(*zap.Logger); ok {
-			return l
-		}
-	}
 	l := LoggerWithContext(m, ctx)
-	l.With(
-		String("uri", GetRequestUri(ctx)),
-		String("localIp", env.GetLocalIP()),
+	l = l.With(
+		String("uri", GetRequestURI(ctx)),
 	)
-	ctx.Set(zapAccessLoggerAddr, l)
 	return l
 }
 
-func AccessInfo(ctx *gin.Context, fields ...zap.Field) {
+func AccessInfo(ctx context.Context, fields ...zap.Field) {
 	zapAccessLogger(ctx).Info("accesslog", fields...)
 }

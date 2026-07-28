@@ -8,21 +8,12 @@
 package zlog
 
 import (
-	"bytes"
 	"context"
-	"fmt"
-	"math/rand"
-	"strings"
-	"sync"
-	"time"
-
-	"github.com/gin-gonic/gin"
+	"crypto/rand"
+	"encoding/hex"
 )
 
-const (
-	ContextKeyRequestID = "request_id"
-	HeaderRequestID     = "X-Request-ID"
-)
+const HeaderRequestID = "X-Request-ID"
 
 type requestIDContextKey struct{}
 
@@ -30,22 +21,24 @@ type requestIDContextKey struct{}
 // application code to an HTTP framework.
 func WithRequestID(ctx context.Context, requestID string) context.Context {
 	if ctx == nil {
-		ctx = context.Background()
+		panic("zlog: nil context")
 	}
 	return context.WithValue(ctx, requestIDContextKey{}, requestID)
 }
 
-// EnsureRequestID returns a context carrying a stable request ID. Gin contexts
-// are populated in place; immutable standard contexts are wrapped.
-func EnsureRequestID(ctx context.Context) (context.Context, string) {
+// EnsureRequestID returns a context carrying a stable request ID. The first
+// non-empty candidate is used when the context does not already contain one.
+func EnsureRequestID(ctx context.Context, candidates ...string) (context.Context, string) {
 	if ctx == nil {
-		ctx = context.Background()
+		panic("zlog: nil context")
 	}
-	if requestID, ok := ctx.Value(requestIDContextKey{}).(string); ok && requestID != "" {
+	if requestID := GetRequestID(ctx); requestID != "" {
 		return ctx, requestID
 	}
-	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
-		return ginCtx, GetRequestID(ginCtx)
+	for _, candidate := range candidates {
+		if candidate != "" {
+			return WithRequestID(ctx, candidate), candidate
+		}
 	}
 	requestID := genRequestID()
 	return WithRequestID(ctx, requestID), requestID
@@ -53,70 +46,19 @@ func EnsureRequestID(ctx context.Context) (context.Context, string) {
 
 func GetRequestID(ctx context.Context) string {
 	if ctx == nil {
-		return genRequestID()
+		return ""
 	}
 
 	if requestID, ok := ctx.Value(requestIDContextKey{}).(string); ok && requestID != "" {
 		return requestID
 	}
-
-	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
-		if requestID := ginCtx.GetString(ContextKeyRequestID); requestID != "" {
-			return requestID
-		}
-
-		var requestID string
-		if ginCtx.Request != nil && ginCtx.Request.Header != nil {
-			requestID = ginCtx.Request.Header.Get(HeaderRequestID)
-			if requestID == "" {
-				requestID = ginCtx.Request.Header.Get(ContextKeyRequestID)
-			}
-		}
-		if requestID != "" {
-			if strings.Contains(requestID, ":") {
-				parts := strings.Split(requestID, ":")
-				requestID = fmt.Sprintf("%s:%016x", parts[0], uint64(generator.Int63()))
-			}
-			ginCtx.Set(ContextKeyRequestID, requestID)
-			return requestID
-		}
-
-		requestID = genRequestID()
-		ginCtx.Set(ContextKeyRequestID, requestID)
-		return requestID
-	}
-
-	return genRequestID()
+	return ""
 }
-
-var generator = newRand(time.Now().UnixNano())
 
 func genRequestID() string {
-	// 生成 uint64的随机数, 并转换成16进制表示方式
-	var buffer bytes.Buffer
-	buffer.WriteString(fmt.Sprintf("%016x:0", uint64(generator.Int63())))
-	return buffer.String()
-}
-
-type LockedSource struct {
-	mut sync.Mutex
-	src rand.Source
-}
-
-func newRand(seed int64) *rand.Rand {
-	return rand.New(&LockedSource{src: rand.NewSource(seed)})
-}
-
-func (r *LockedSource) Int63() (n int64) {
-	r.mut.Lock()
-	n = r.src.Int63()
-	r.mut.Unlock()
-	return
-}
-
-// Seed implements Seed() of Source
-func (r *LockedSource) Seed(seed int64) {
-	r.mut.Lock()
-	r.src.Seed(seed)
-	r.mut.Unlock()
+	var value [16]byte
+	if _, err := rand.Read(value[:]); err != nil {
+		panic("zlog: generate request ID: " + err.Error())
+	}
+	return hex.EncodeToString(value[:])
 }

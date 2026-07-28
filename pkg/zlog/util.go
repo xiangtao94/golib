@@ -4,65 +4,40 @@ import (
 	"context"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
-// util key
-const (
-	ContextKeyNoLog  = "_no_log"
-	ContextKeyUri    = "_uri"
-	customerFieldKey = "__customerFields"
-)
+type noLogContextKey struct{}
+type requestURIContextKey struct{}
 
-func GetRequestUri(ctx *gin.Context) string {
+func GetRequestURI(ctx context.Context) string {
 	if ctx == nil {
 		return ""
 	}
-	return ctx.GetString(ContextKeyUri)
+	uri, _ := ctx.Value(requestURIContextKey{}).(string)
+	return uri
 }
 
-// a new method for customer notice
-func AddField(c *gin.Context, field ...Field) {
-	customerFields := GetCustomerFields(c)
-	if customerFields == nil {
-		customerFields = field
-	} else {
-		customerFields = append(customerFields, field...)
+func WithRequestURI(ctx context.Context, uri string) context.Context {
+	if ctx == nil {
+		panic("zlog: nil context")
 	}
-
-	c.Set(customerFieldKey, customerFields)
+	return context.WithValue(ctx, requestURIContextKey{}, uri)
 }
 
-// 获得所有用户自定义的Field
-func GetCustomerFields(c *gin.Context) (customerFields []Field) {
-	if v, exist := c.Get(customerFieldKey); exist {
-		customerFields, _ = v.([]Field)
+func WithNoLog(ctx context.Context) context.Context {
+	if ctx == nil {
+		panic("zlog: nil context")
 	}
-	return customerFields
-}
-
-func SetNoLogFlag(ctx *gin.Context) {
-	ctx.Set(ContextKeyNoLog, true)
-}
-
-func SetLogFlag(ctx *gin.Context) {
-	ctx.Set(ContextKeyNoLog, false)
+	return context.WithValue(ctx, noLogContextKey{}, true)
 }
 
 func noLog(ctx context.Context) bool {
 	if ctx == nil {
 		return false
 	}
-	ginCtx, ok := ctx.(*gin.Context)
-	if !ok || ginCtx == nil {
-		return false
-	}
-	flag, ok := ginCtx.Get(ContextKeyNoLog)
-	if ok && flag == true {
-		return true
-	}
-	return false
+	flag, _ := ctx.Value(noLogContextKey{}).(bool)
+	return flag
 }
 
 func GetFormatRequestTime(time time.Time) string {

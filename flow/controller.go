@@ -59,6 +59,12 @@ func Use[T any](factory ControllerFactory[T], options ...ControllerOption) gin.H
 	}
 
 	return func(ginCtx *gin.Context) {
+		requestContext, _ := zlog.EnsureRequestID(
+			ginCtx.Request.Context(),
+			ginCtx.GetHeader(zlog.HeaderRequestID),
+		)
+		ginCtx.Request = ginCtx.Request.WithContext(requestContext)
+
 		controller := factory()
 		if controller == nil {
 			zlog.Error(ginCtx, "controller factory returned nil")
@@ -79,7 +85,6 @@ func Use[T any](factory ControllerFactory[T], options ...ControllerOption) gin.H
 			return
 		}
 
-		requestContext := zlog.WithRequestID(ginCtx.Request.Context(), zlog.GetRequestID(ginCtx))
 		data, err := controller.Action(requestContext, &request)
 		if err != nil {
 			zlog.Errorf(ginCtx, "controller %T action failed: %v", controller, err)

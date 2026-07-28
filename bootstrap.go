@@ -41,11 +41,14 @@ func WithLang(lang string) BootstrapOption {
 	}
 }
 
-// 3. 日志 - 支持可选配置
-func WithZlog(conf ...zlog.LogConfig) BootstrapOption {
+// 3. 日志
+func WithZlog(conf zlog.LogConfig) BootstrapOption {
 	return func(engine *gin.Engine) error {
-		zlog.InitLog(conf...)
-		return nil
+		if conf.AppName == "" {
+			conf.AppName = env.GetAppName()
+		}
+		_, err := zlog.InitLog(conf)
+		return err
 	}
 }
 
@@ -74,6 +77,7 @@ func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
 }
 
 func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) error {
+	engine.Use(middleware.RequestID())
 	for _, opt := range opts {
 		if opt == nil {
 			continue
