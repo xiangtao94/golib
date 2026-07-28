@@ -30,7 +30,7 @@ func TestUseConstructsControllerThroughFactory(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	var actionRequestID string
-	engine.GET("/", Use(func() IController[controllerRequest] {
+	engine.GET("/", Use(func() Controller[controllerRequest] {
 		return &factoryController{dependency: "injected", requestID: &actionRequestID}
 	}))
 

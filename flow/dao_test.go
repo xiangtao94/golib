@@ -25,27 +25,10 @@ func TestDBRegistryIsInstanceScoped(t *testing.T) {
 	require.Nil(t, second.Get("replica"))
 }
 
-func TestDaoReadMasterStateIsPerInstance(t *testing.T) {
-	first := NewDao(nil)
-	second := NewDao(nil)
-	first.SetReadDbMaster(true)
-
-	require.True(t, first.GetReadDbMaster())
-	require.False(t, second.GetReadDbMaster())
-}
-
 func TestCommonDaoReturnsConfigurationError(t *testing.T) {
 	dao := CommonDao[daoModel]{Dao: NewDao(nil)}
 
-	_, err := dao.GetById(1)
-
-	require.ErrorIs(t, err, ErrDatabaseNotConfigured)
-}
-
-func TestCommonDaoContextMethodReturnsConfigurationError(t *testing.T) {
-	dao := CommonDao[daoModel]{Dao: NewDao(nil)}
-
-	_, err := dao.GetByIDContext(context.Background(), 1)
+	_, err := dao.GetByID(context.Background(), 1)
 
 	require.ErrorIs(t, err, ErrDatabaseNotConfigured)
 }
@@ -64,7 +47,7 @@ func TestDaoGetDBContextUsesTheCallContext(t *testing.T) {
 	db.Statement.DB = db
 	dao := NewDao(NewDBRegistry(db, nil))
 
-	result := dao.GetDBContext(ctx)
+	result := dao.GetDB(ctx)
 
 	require.Equal(t, "call", result.Statement.Context.Value(contextKey{}))
 }

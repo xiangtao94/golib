@@ -18,19 +18,7 @@ type ApiRes struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 }
 
-// Deprecated: compose Api directly and pass context to its context-aware
-// methods. This interface is kept for source compatibility.
-type IApi interface {
-	ILayer
-	GetEncodeType() string
-	ApiGet(path string, requestParam map[string]string) (*ApiRes, error)
-	ApiPost(path string, requestBody interface{}) (*ApiRes, error)
-	ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
-	ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error)
-}
-
 type Api struct {
-	Layer
 	EncodeType string
 	Client     *http.ClientConf
 }
@@ -43,58 +31,38 @@ func (entity *Api) GetEncodeType() string {
 	return http.EncodeJson
 }
 
-func (entity *Api) ApiGet(path string, requestParam map[string]string) (*ApiRes, error) {
-	return entity.ApiGetContext(entity.GetCtx(), path, requestParam)
-}
-
-func (entity *Api) ApiGetContext(ctx context.Context, path string, requestParam map[string]string) (*ApiRes, error) {
+func (entity *Api) ApiGet(ctx context.Context, path string, requestParam map[string]string) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		QueryParams: requestParam,
 	}
-	return entity.ApiGetWithOptsContext(ctx, path, reqOpts)
+	return entity.ApiGetWithOpts(ctx, path, reqOpts)
 }
 
-func (entity *Api) ApiDelete(path string, requestParam interface{}) (*ApiRes, error) {
-	return entity.ApiDeleteContext(entity.GetCtx(), path, requestParam)
-}
-
-func (entity *Api) ApiDeleteContext(ctx context.Context, path string, requestParam interface{}) (*ApiRes, error) {
+func (entity *Api) ApiDelete(ctx context.Context, path string, requestParam interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestParam,
 		Encode:      http.EncodeForm,
 	}
-	return entity.ApiDeleteWithOptsContext(ctx, path, reqOpts)
+	return entity.ApiDeleteWithOpts(ctx, path, reqOpts)
 }
 
-func (entity *Api) ApiPut(path string, requestBody interface{}) (*ApiRes, error) {
-	return entity.ApiPutContext(entity.GetCtx(), path, requestBody)
-}
-
-func (entity *Api) ApiPutContext(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
+func (entity *Api) ApiPut(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      entity.GetEncodeType(),
 	}
-	return entity.ApiPutWithOptsContext(ctx, path, reqOpts)
+	return entity.ApiPutWithOpts(ctx, path, reqOpts)
 }
 
-func (entity *Api) ApiPost(path string, requestBody interface{}) (*ApiRes, error) {
-	return entity.ApiPostContext(entity.GetCtx(), path, requestBody)
-}
-
-func (entity *Api) ApiPostContext(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
+func (entity *Api) ApiPost(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      entity.GetEncodeType(),
 	}
-	return entity.ApiPostWithOptsContext(ctx, path, reqOpts)
+	return entity.ApiPostWithOpts(ctx, path, reqOpts)
 }
 
-func (entity *Api) ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
-	return entity.ApiGetWithOptsContext(entity.GetCtx(), path, reqOpts)
-}
-
-func (entity *Api) ApiGetWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiGetWithOpts(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(ctx, "ApiGetWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -107,11 +75,7 @@ func (entity *Api) ApiGetWithOptsContext(ctx context.Context, path string, reqOp
 	return entity.handleContext(ctx, path, res)
 }
 
-func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
-	return entity.ApiDeleteWithOptsContext(entity.GetCtx(), path, reqOpts)
-}
-
-func (entity *Api) ApiDeleteWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiDeleteWithOpts(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(ctx, "ApiDeleteWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -124,11 +88,7 @@ func (entity *Api) ApiDeleteWithOptsContext(ctx context.Context, path string, re
 	return entity.handleContext(ctx, path, res)
 }
 
-func (entity *Api) ApiPutWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
-	return entity.ApiPutWithOptsContext(entity.GetCtx(), path, reqOpts)
-}
-
-func (entity *Api) ApiPutWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiPutWithOpts(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(ctx, "ApiPutWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -144,11 +104,7 @@ func (entity *Api) ApiPutWithOptsContext(ctx context.Context, path string, reqOp
 	return entity.handleContext(ctx, path, res)
 }
 
-func (entity *Api) ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
-	return entity.ApiPostWithOptsContext(entity.GetCtx(), path, reqOpts)
-}
-
-func (entity *Api) ApiPostWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+func (entity *Api) ApiPostWithOpts(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
 		zlog.Errorf(ctx, "ApiPostWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
@@ -162,10 +118,6 @@ func (entity *Api) ApiPostWithOptsContext(ctx context.Context, path string, reqO
 		return nil, err
 	}
 	return entity.handleContext(ctx, path, res)
-}
-
-func (entity *Api) handle(path string, res *http.Result) (*ApiRes, error) {
-	return entity.handleContext(entity.GetCtx(), path, res)
 }
 
 func (entity *Api) handleContext(ctx context.Context, path string, res *http.Result) (*ApiRes, error) {
@@ -192,7 +144,7 @@ func (entity *Api) handleContext(ctx context.Context, path string, res *http.Res
 	return apiRes, nil
 }
 
-func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error) error {
+func (entity *Api) DecodeAPIResponse(ctx context.Context, output interface{}, data *ApiRes, err error) error {
 	if err != nil {
 		return err
 	}
@@ -202,10 +154,10 @@ func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error
 	if data.Code != 0 && data.Code != 200 {
 		return errors.NewError(data.Code, map[string]string{"zh": data.Message, "en": data.Message})
 	}
-	if outPut != nil && len(data.Data) > 0 {
+	if output != nil && len(data.Data) > 0 {
 		// 解析数据
-		if err = json.Unmarshal(data.Data, outPut); err != nil {
-			zlog.Errorf(entity.GetCtx(), "api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())
+		if err = json.Unmarshal(data.Data, output); err != nil {
+			zlog.Errorf(ctx, "api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())
 			return errors.ErrorSystemError
 		}
 

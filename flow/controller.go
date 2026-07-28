@@ -11,17 +11,13 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-// IController is deliberately independent of Gin. The HTTP adapter passes the
+// Controller is deliberately independent of Gin. The HTTP adapter passes the
 // request context and owns binding and rendering.
-type IController[T any] interface {
+type Controller[T any] interface {
 	Action(context.Context, *T) (any, error)
 }
 
-// Controller is the business-facing extension point consumed by Use.
-// IController remains as a compatibility name for existing applications.
-type Controller[T any] = IController[T]
-
-type ControllerFactory[T any] func() IController[T]
+type ControllerFactory[T any] func() Controller[T]
 
 type controllerConfig struct {
 	binding  binding.Binding

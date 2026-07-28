@@ -25,7 +25,7 @@ func TestAPIHandleAcceptsEverySuccessfulHTTPStatus(t *testing.T) {
 
 	for _, status := range []int{http.StatusOK, http.StatusCreated, http.StatusNoContent} {
 		t.Run(http.StatusText(status), func(t *testing.T) {
-			response, err := api.handle("/resource", &httpclient.Result{
+			response, err := api.handleContext(context.Background(), "/resource", &httpclient.Result{
 				HttpCode: status,
 				Response: []byte(`{"code":200,"message":"ok"}`),
 			})
@@ -39,7 +39,7 @@ func TestAPIHandleAcceptsEverySuccessfulHTTPStatus(t *testing.T) {
 func TestAPIHandleRejectsNilResponse(t *testing.T) {
 	api := &Api{}
 
-	response, err := api.handle("/resource", nil)
+	response, err := api.handleContext(context.Background(), "/resource", nil)
 
 	require.Nil(t, response)
 	require.Error(t, err)
@@ -49,7 +49,7 @@ func TestDecodeAPIResponseReturnsTransportErrorFirst(t *testing.T) {
 	api := &Api{}
 	transportErr := errors.New("transport failed")
 
-	require.ErrorIs(t, api.DecodeApiResponse(nil, nil, transportErr), transportErr)
+	require.ErrorIs(t, api.DecodeAPIResponse(context.Background(), nil, nil, transportErr), transportErr)
 }
 
 func TestAPIGetContextUsesTheCallContext(t *testing.T) {
@@ -69,7 +69,7 @@ func TestAPIGetContextUsesTheCallContext(t *testing.T) {
 	api := &Api{Client: client}
 	ctx := zlog.WithRequestID(context.Background(), "req-call-context")
 
-	response, err := api.ApiGetContext(ctx, "/resource", nil)
+	response, err := api.ApiGet(ctx, "/resource", nil)
 
 	require.NoError(t, err)
 	require.NotNil(t, response)
