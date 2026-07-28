@@ -1,53 +1,61 @@
 # Flow
 
-Flow 提供轻量分层约定，不实现 service locator，也不持有进程级业务状态。
+Flow 是根 module 内的 HTTP adapter 与基础数据访问工具，不是 service locator，也不持有请求级或进程级业务状态。
 
-## Controller
+## Controller seam
+
+业务直接实现 `Controller[T]`：
 
 ```go
 type CreateUserController struct {
-    users UserService
+	users *UserApplication
 }
 
 func (controller *CreateUserController) Action(
-    ctx context.Context,
-    request *CreateUserRequest,
+	ctx context.Context,
+	request *CreateUserRequest,
 ) (any, error) {
-    return controller.users.Create(ctx, request)
+	return controller.users.Create(ctx, request)
 }
 
-router.POST("/users", flow.Use(func() flow.IController[CreateUserRequest] {
-    return &CreateUserController{users: users}
+router.POST("/users", flow.Use(func() flow.Controller[CreateUserRequest] {
+	return &CreateUserController{users: users}
 }))
 ```
 
-factory 每个请求执行一次，因此构造器注入的依赖会完整保留。绑定和 JSON 渲染由 Gin adapter 负责；核心 Controller 只依赖 `context.Context`。
+factory 每个请求执行一次。Gin adapter 负责绑定、request ID 和渲染；业务只接收标准 `context.Context`。可通过 `WithBinding` 和 `WithRenderer` 替换 adapter 行为。
 
-可通过 `flow.WithBinding` 选择无 Content-Type 请求的绑定器，通过 `flow.WithRenderer` 注入实例级 renderer。
-
-## Layer
-
-```go
-service := flow.Create(ctx, func() *UserService {
-    return &UserService{repository: repository}
-})
-```
-
-`Create` 不使用反射。factory 创建对象后，Flow 设置标准 context 并调用 `OnCreate`。
-
-## DB registry
+## DB registry 与 DAO
 
 ```go
 registry := flow.NewDBRegistry(primary, map[string]*gorm.DB{
-    "analytics": analytics,
+	"analytics": analytics,
 })
 
-dao := &UserDAO{Dao: flow.NewDao(registry)}
-dao.SetCtx(ctx)
+type UserDAO struct {
+	flow.Dao
+}
+
+users := &UserDAO{Dao: flow.NewDao(registry)}
+db := users.GetDB(ctx)
+analyticsDB := users.GetDBByName(ctx, "analytics")
 ```
 
-Registry 是普通实例，可按应用或测试独立创建。不存在可被其他测试或请求覆盖的全局 DB。未配置 DB 时 CommonDao 返回 `flow.ErrDatabaseNotConfigured`，不会 nil pointer panic。
+`DBRegistry` 在构造后只读，按应用或测试实例注入，不存在包级默认 DB。`CommonDao[T]` 的所有操作显式接收 context；未配置 DB 时返回 `ErrDatabaseNotConfigured`。
 
-## API adapter
+## 外部 HTTP
 
-`Api` 接受全部 2xx 状态，包括 201 和 204；transport error 优先返回，nil response/data 会得到明确错误。
+```go
+client, err := httpclient.NewClient(httpclient.ClientConfig{
+	Domain: "https://users.example.com",
+})
+if err != nil {
+	return err
+}
+defer client.Close()
+
+usersAPI := flow.Api{Client: client}
+response, err := usersAPI.ApiGet(ctx, "/v1/users/1", nil)
+```
+
+`Api` 是具体类型，不再通过同形的 `IApi` 暴露浅 interface。全部方法显式接收 context，并接受所有 2xx HTTP 状态。

@@ -1,21 +1,39 @@
 # zlog
 
-Zap 的上下文日志封装。公共日志函数接收 `context.Context`，Gin 只用于 access-log 专属字段。
+`zlog` 是独立 module，只依赖 Zap 与文件 sink，不依赖 Gin、Viper 或根 module。
+
+## 生命周期
 
 ```go
-ctx := zlog.WithRequestID(context.Background(), "req-123")
-zlog.Infof(ctx, "started")
+config := zlog.DefaultLogConfig()
+config.AppName = "users"
+config.LogToFile = true
+config.LogDir = "/var/log/users"
+config.Buffer.Enabled = true
+
+logger, err := zlog.InitLog(config)
+if err != nil {
+	return err
+}
+defer zlog.CloseLogger()
+
+logger.Info("started")
 ```
 
-来自 Gin 的 request ID 仍兼容；向下游传递统一使用 `X-Request-ID`。
+`InitLog` 应在启动阶段、请求 goroutine 运行前调用。配置会先完整校验和准备，成功后才替换当前 logger；无效 level、format、文件路径或 buffer 组合返回 error。`CloseLogger` flush 并关闭 writer，且可重复调用。
 
-Access log 默认不记录 body 和敏感认证 header。正文捕获由 middleware 的有界长度与 sanitizer 显式控制。
+`DefaultLogConfig` 默认输出 JSON 到 stdout，不写文件、不启用 buffer。直接构造 `LogConfig{}` 会得到显式零值输出，因此需要默认行为时应从 `DefaultLogConfig` 开始。
 
-文件 sink 使用 lumberjack，按大小而非按自然日轮转：
+## Context
 
-- 单文件最大 100 MiB
-- 最多 14 个备份
-- 最长 14 天
-- 压缩旧文件
+```go
+ctx, requestID := zlog.EnsureRequestID(context.Background(), incomingRequestID)
+zlog.Infof(ctx, "request accepted: %s", requestID)
 
-`CloseLogger` 应在进程退出前调用，以 flush 缓冲日志。
+downstream := zlog.WithRequestURI(ctx, "/v1/users")
+zlog.InfoLogger(downstream, "calling repository")
+```
+
+request ID 只存放在标准 `context.Context`，HTTP header/Gin 的转换由根 module 的 middleware 负责。`WithNoLog` 可对明确的内部请求关闭日志。
+
+文件 sink 使用 lumberjack：单文件 100 MiB、最多 14 个备份、最长 14 天并压缩。它按大小轮转，不保证自然日切割。

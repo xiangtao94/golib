@@ -1,0 +1,41 @@
+name: Go
+
+on:
+  pull_request:
+  push:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: verify ${{ matrix.module }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        module:
+          - .
+          - pkg/env
+          - pkg/zlog
+          - pkg/elasticsearch
+          - pkg/mcp
+          - pkg/milvus
+          - pkg/orm
+          - pkg/oss
+          - pkg/redis
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Test with race detector
+        working-directory: ${{ matrix.module }}
+        run: GOWORK=off go test -race ./...
+
+      - name: Vet
+        working-directory: ${{ matrix.module }}
+        run: GOWORK=off go vet ./...

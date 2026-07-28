@@ -12,6 +12,7 @@ if err != nil {
 }
 
 engine.Use(middleware.CustomRecoveryWithZap(nil, nil))
+engine.Use(middleware.RequestID())
 engine.Use(cors)
 engine.Use(middleware.RateLimitMiddleware(middleware.RateLimiterConfig{
     Rate:       100,
@@ -40,3 +41,5 @@ middleware.RegisterMetrics(engine, metrics)
 指标使用 Gin route template、method、app name 和 status class。不要把用户 ID、query 或原始 URL 加入 label。
 
 SSE route 使用 `UploadEventStream` 设置 transport header；跨域策略统一由 `NewCORS` 管理。
+
+`golib.Bootstraps` 会自动安装 `RequestID`，手动组装 middleware 时才需显式注册。业务日志从 `ctx.Request.Context()` 读取 request ID；access log 自定义字段使用 `middleware.AddAccessFields(ctx, fields...)`。
