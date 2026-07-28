@@ -73,7 +73,7 @@ func Handle[T any](controller Controller[T], options ...ControllerOption) gin.Ha
 		}
 		if err != nil {
 			zlog.Errorf(ginCtx, "controller %T parameter binding failed: %v", controller, err)
-			config.renderer.Failure(ginCtx, errors.ErrorParamInvalid)
+			config.renderer.Failure(ginCtx, errors.ErrInvalidArgument)
 			return
 		}
 

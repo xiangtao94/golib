@@ -11,51 +11,33 @@ import (
 	"github.com/gin-contrib/sse"
 	"github.com/gin-gonic/gin"
 
-	errors2 "github.com/xiangtao94/golib/pkg/errors"
+	serviceerrors "github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-type Render interface {
-	SetReturnCode(int)
-	SetReturnMsg(string)
-	SetReturnData(interface{})
-	SetReturnRequestId(string)
-	GetReturnCode() int
-	GetReturnMsg() string
+type Response struct {
+	Code      string         `json:"code"`
+	Reason    string         `json:"reason"`
+	Message   string         `json:"message"`
+	RequestID string         `json:"request_id"`
+	Retryable bool           `json:"retryable"`
+	Details   map[string]any `json:"details,omitempty"`
+	Data      any            `json:"data,omitempty"`
 }
 
-type Factory func() Render
+type Factory func(Response) any
 
-// JSONRenderer owns its factory. Custom response shapes are injected per
-// handler/application instead of mutating package-global state.
+// JSONRenderer owns its response factory. A service may adapt the standard
+// contract at its outermost HTTP edge without changing business errors.
 type JSONRenderer struct {
 	factory Factory
 }
 
 func NewJSONRenderer(factory Factory) *JSONRenderer {
 	if factory == nil {
-		factory = func() Render { return &DefaultRender{} }
+		factory = func(response Response) any { return response }
 	}
 	return &JSONRenderer{factory: factory}
-}
-
-type DefaultRender struct {
-	Code      int         `json:"code" example:"200"`
-	Message   string      `json:"message" example:"Success"`
-	RequestId string      `json:"request_id,omitempty"`
-	Data      interface{} `json:"data"`
-}
-
-func (r *DefaultRender) SetReturnRequestId(requestID string) { r.RequestId = requestID }
-func (r *DefaultRender) GetReturnCode() int                  { return r.Code }
-func (r *DefaultRender) SetReturnCode(code int)              { r.Code = code }
-func (r *DefaultRender) GetReturnMsg() string                { return r.Message }
-func (r *DefaultRender) SetReturnMsg(message string)         { r.Message = message }
-func (r *DefaultRender) GetReturnData() interface{}          { return r.Data }
-func (r *DefaultRender) SetReturnData(data interface{})      { r.Data = data }
-
-func setCommonHeader(ctx *gin.Context, requestID string) {
-	ctx.Header(zlog.HeaderRequestID, requestID)
 }
 
 func ensureRequestID(ctx *gin.Context) string {
@@ -64,6 +46,7 @@ func ensureRequestID(ctx *gin.Context) string {
 		ctx.GetHeader(zlog.HeaderRequestID),
 	)
 	ctx.Request = ctx.Request.WithContext(requestContext)
+	ctx.Header(zlog.HeaderRequestID, requestID)
 	return requestID
 }
 
@@ -72,7 +55,7 @@ func StackLogger(ctx *gin.Context, err error) {
 		return
 	}
 
-	info := map[string]interface{}{
+	info := map[string]any{
 		"time":   time.Now().Format("2006-01-02 15:04:05"),
 		"level":  "error",
 		"module": "errorstack",
@@ -84,55 +67,37 @@ func StackLogger(ctx *gin.Context, err error) {
 	fmt.Printf("%s\n-------------------stack-start-------------------\n%+v\n-------------------stack-end-------------------\n", encoded, err)
 }
 
-func (renderer *JSONRenderer) JSON(ctx *gin.Context, httpStatus, code int, message string, data interface{}) {
+func (renderer *JSONRenderer) Write(ctx *gin.Context, httpStatus int, response Response) {
 	if httpStatus < 100 || httpStatus > 599 {
 		httpStatus = http.StatusInternalServerError
 	}
-	requestID := ensureRequestID(ctx)
-	response := renderer.factory()
-	response.SetReturnCode(code)
-	response.SetReturnMsg(message)
-	response.SetReturnData(data)
-	response.SetReturnRequestId(requestID)
-	setCommonHeader(ctx, requestID)
-	ctx.JSON(httpStatus, response)
+	response.RequestID = ensureRequestID(ctx)
+	ctx.JSON(httpStatus, renderer.factory(response))
 }
 
-func (renderer *JSONRenderer) Success(ctx *gin.Context, data interface{}) {
-	renderer.JSON(ctx, http.StatusOK, http.StatusOK, "success", data)
+func (renderer *JSONRenderer) Success(ctx *gin.Context, data any) {
+	renderer.Write(ctx, http.StatusOK, Response{
+		Code:      "OK",
+		Reason:    "OK",
+		Message:   "success",
+		Retryable: false,
+		Data:      data,
+	})
 }
 
 func (renderer *JSONRenderer) Failure(ctx *gin.Context, err error) {
-	status := http.StatusInternalServerError
-	code := errors2.ErrorSystemError.Code
-	message := errors2.ErrorSystemError.GetMessage(ctx)
-
-	var typedError errors2.Error
-	if errors.As(err, &typedError) {
-		status = typedError.HTTPStatus
-		if status < 400 || status > 599 {
-			status = http.StatusInternalServerError
-		}
-		code = typedError.Code
-		message = typedError.GetMessage(ctx)
-	}
-	renderer.JSON(ctx, status, code, message, gin.H{})
+	public := serviceerrors.From(err)
+	renderer.Write(ctx, public.HTTPStatus(), Response{
+		Code:      public.Code(),
+		Reason:    public.Reason(),
+		Message:   public.Message(),
+		Retryable: public.Retryable(),
+		Details:   public.Details(),
+	})
 	StackLogger(ctx, err)
 }
 
-func RenderJson(ctx *gin.Context, httpStatus, code int, message string, data interface{}) {
-	NewJSONRenderer(nil).JSON(ctx, httpStatus, code, message, data)
-}
-
-func RenderJsonSucc(ctx *gin.Context, data interface{}) {
-	NewJSONRenderer(nil).Success(ctx, data)
-}
-
-func RenderJsonFail(ctx *gin.Context, err error) {
-	NewJSONRenderer(nil).Failure(ctx, err)
-}
-
-func RenderStream(ctx *gin.Context, id, event string, data interface{}) error {
+func RenderStream(ctx *gin.Context, id, event string, data any) error {
 	flusher, ok := ctx.Writer.(http.Flusher)
 	if !ok {
 		return errors.New("response writer does not support streaming")
@@ -145,16 +110,14 @@ func RenderStream(ctx *gin.Context, id, event string, data interface{}) error {
 }
 
 func RenderStreamFail(ctx *gin.Context, err error) error {
-	requestID := ensureRequestID(ctx)
-	response := DefaultRender{
-		Code:      errors2.ErrorSystemError.Code,
-		Message:   errors2.ErrorSystemError.GetMessage(ctx),
-		RequestId: requestID,
-	}
-	var typedError errors2.Error
-	if errors.As(err, &typedError) {
-		response.Code = typedError.Code
-		response.Message = typedError.GetMessage(ctx)
+	public := serviceerrors.From(err)
+	response := Response{
+		Code:      public.Code(),
+		Reason:    public.Reason(),
+		Message:   public.Message(),
+		RequestID: ensureRequestID(ctx),
+		Retryable: public.Retryable(),
+		Details:   public.Details(),
 	}
 	encoded, marshalErr := json.Marshal(response)
 	if marshalErr != nil {

@@ -1,120 +1,154 @@
+// Package errors defines transport-neutral public service errors.
 package errors
 
 import (
-	"context"
-	"fmt"
+	stderrors "errors"
 	"net/http"
-
-	"github.com/xiangtao94/golib/pkg/env"
+	"strings"
 )
 
-// Error 结构体支持多语言
+// Error keeps the public contract separate from its private cause. Values are
+// immutable: every With method returns a copy.
 type Error struct {
-	Code       int
-	HTTPStatus int
-	Message    map[string]string // 存储不同语言的消息
+	code       string
+	reason     string
+	message    string
+	httpStatus int
+	retryable  bool
+	details    map[string]any
+	cause      error
 }
 
-// NewError 创建新的错误对象，并支持双语
-func NewError(code int, messages map[string]string) Error {
-	copiedMessages := make(map[string]string, len(messages)+2)
-	for language, message := range messages {
-		copiedMessages[language] = message
+func New(code, message string, httpStatus int) *Error {
+	code = strings.TrimSpace(code)
+	if code == "" {
+		code = "INTERNAL"
 	}
-
-	if msg, ok := ErrMsg["zh"][code]; ok {
-		copiedMessages["zh"] = msg
+	if httpStatus < 400 || httpStatus > 599 {
+		httpStatus = http.StatusInternalServerError
 	}
-	if msg, ok := ErrMsg["en"][code]; ok {
-		copiedMessages["en"] = msg
-	}
-
-	return Error{
-		Code:       code,
-		HTTPStatus: defaultHTTPStatus(code),
-		Message:    copiedMessages,
+	return &Error{
+		code:       code,
+		reason:     code,
+		message:    message,
+		httpStatus: httpStatus,
 	}
 }
 
-func (err Error) WithHTTPStatus(status int) Error {
-	if status < 400 || status > 599 {
-		status = http.StatusInternalServerError
+func (err *Error) Error() string {
+	if err == nil {
+		return ""
 	}
-	err.HTTPStatus = status
-	return err
+	return err.message
 }
 
-func (err Error) Sprintf(v ...interface{}) Error {
-	newMsg := make(map[string]string, len(err.Message))
-	for key, val := range err.Message {
-		newMsg[key] = fmt.Sprintf(val, v...)
+func (err *Error) Unwrap() error {
+	if err == nil {
+		return nil
 	}
-	err.Message = newMsg
-	return err
+	return err.cause
 }
 
-// GetMessage 获取指定语言的错误信息
-func (err Error) GetMessage(ctx context.Context) string {
-	lang := env.LanguageFromContext(ctx)
-	if msg, exists := err.Message[lang]; exists {
-		return msg
+func (err *Error) Code() string {
+	if err == nil {
+		return ""
 	}
-	return err.Message[env.GetLanguage()]
+	return err.code
 }
 
-func defaultHTTPStatus(code int) int {
-	switch code {
-	case PARAM_ERROR, INVALID_REQUEST:
-		return http.StatusBadRequest
-	case USER_NOT_LOGIN:
-		return http.StatusUnauthorized
-	default:
+func (err *Error) Reason() string {
+	if err == nil {
+		return ""
+	}
+	return err.reason
+}
+
+func (err *Error) Message() string {
+	if err == nil {
+		return ""
+	}
+	return err.message
+}
+
+func (err *Error) HTTPStatus() int {
+	if err == nil {
 		return http.StatusInternalServerError
 	}
+	return err.httpStatus
 }
 
-// Error 方法默认返回当前设定语言的信息
-func (err Error) Error() string {
-	if msg, ok := err.Message[env.GetLanguage()]; ok {
-		return msg
+func (err *Error) Retryable() bool {
+	return err != nil && err.retryable
+}
+
+func (err *Error) Details() map[string]any {
+	if err == nil {
+		return nil
 	}
-	return "Unknown error"
+	return cloneDetails(err.details)
 }
 
-// 定义错误码
-const (
-	SYSTEM_ERROR    = 1
-	PARAM_ERROR     = 2
-	USER_NOT_LOGIN  = 3
-	INVALID_REQUEST = 4
-	DEFAULT_ERROR   = 100
-	CUSTOM_ERROR    = 101
-)
-
-// 多语言错误消息
-var ErrMsg = map[string]map[int]string{
-	"zh": {
-		PARAM_ERROR:     "请求参数错误",
-		SYSTEM_ERROR:    "服务异常，请稍后重试",
-		USER_NOT_LOGIN:  "用户Session已失效，请重新登录",
-		INVALID_REQUEST: "请求无效，请稍后再试",
-		DEFAULT_ERROR:   "服务开小差了，请稍后再试",
-	},
-	"en": {
-		PARAM_ERROR:     "Request parameter error",
-		SYSTEM_ERROR:    "Service exception, please try again later",
-		USER_NOT_LOGIN:  "User session expired, please log in again",
-		INVALID_REQUEST: "Invalid request, please try again later",
-		DEFAULT_ERROR:   "The service is down, please try again later",
-	},
+func (err *Error) WithReason(reason string) *Error {
+	clone := err.clone()
+	if value := strings.TrimSpace(reason); value != "" {
+		clone.reason = value
+	}
+	return clone
 }
 
-// 定义标准错误
+func (err *Error) WithRetryable(retryable bool) *Error {
+	clone := err.clone()
+	clone.retryable = retryable
+	return clone
+}
+
+func (err *Error) WithDetails(details map[string]any) *Error {
+	clone := err.clone()
+	clone.details = cloneDetails(details)
+	return clone
+}
+
+func (err *Error) Wrap(cause error) *Error {
+	clone := err.clone()
+	clone.cause = cause
+	return clone
+}
+
+func (err *Error) clone() *Error {
+	if err == nil {
+		return New("INTERNAL", "internal server error", http.StatusInternalServerError)
+	}
+	clone := *err
+	clone.details = cloneDetails(err.details)
+	return &clone
+}
+
+func cloneDetails(details map[string]any) map[string]any {
+	if len(details) == 0 {
+		return nil
+	}
+	clone := make(map[string]any, len(details))
+	for key, value := range details {
+		clone[key] = value
+	}
+	return clone
+}
+
+// From extracts a public Error or returns a safe internal fallback that wraps
+// the original cause for logs and errors.Is/errors.As.
+func From(err error) *Error {
+	var public *Error
+	if stderrors.As(err, &public) {
+		return public
+	}
+	return ErrInternal.Wrap(err)
+}
+
 var (
-	ErrorParamInvalid   = NewError(PARAM_ERROR, nil)
-	ErrorSystemError    = NewError(SYSTEM_ERROR, nil)
-	ErrorUserNotLogin   = NewError(USER_NOT_LOGIN, nil)
-	ErrorInvalidRequest = NewError(INVALID_REQUEST, nil)
-	ErrorDefault        = NewError(DEFAULT_ERROR, nil)
-	ErrorCustomError    = NewError(CUSTOM_ERROR, map[string]string{"zh": "%s", "en": "%s"})
+	ErrInternal         = New("INTERNAL", "internal server error", http.StatusInternalServerError)
+	ErrInvalidArgument  = New("INVALID_ARGUMENT", "invalid request", http.StatusBadRequest)
+	ErrUnauthenticated  = New("UNAUTHENTICATED", "authentication required", http.StatusUnauthorized)
+	ErrPermissionDenied = New("PERMISSION_DENIED", "permission denied", http.StatusForbidden)
+	ErrNotFound         = New("NOT_FOUND", "resource not found", http.StatusNotFound)
+	ErrConflict         = New("CONFLICT", "resource conflict", http.StatusConflict)
 )
