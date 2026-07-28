@@ -7,8 +7,9 @@ use (
 	./pkg/elasticsearch
 	./pkg/mcp
 	./pkg/milvus
+	./pkg/mongodb
 	./pkg/orm
-	./pkg/oss
 	./pkg/otel
 	./pkg/redis
+	./pkg/s3
 )

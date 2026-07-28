@@ -15,7 +15,7 @@ import (
 	"go.opentelemetry.io/otel/propagation"
 	"go.opentelemetry.io/otel/trace"
 
-	httpclient "github.com/xiangtao94/golib/pkg/http"
+	"github.com/xiangtao94/golib/pkg/httpclient"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 

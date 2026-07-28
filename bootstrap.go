@@ -23,6 +23,8 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
+var ErrNilContext = errors.New("golib: nil context")
+
 type BootstrapOption func(engine *gin.Engine) error
 
 // 1. 应用名称
@@ -180,6 +182,9 @@ func NewHTTPServer(handler http.Handler, conf HTTPServerConfig) *HTTPServer {
 }
 
 func (s *HTTPServer) Run(ctx context.Context) error {
+	if ctx == nil {
+		return ErrNilContext
+	}
 	listener, err := net.Listen("tcp", s.server.Addr)
 	if err != nil {
 		return fmt.Errorf("listen on %s: %w", s.server.Addr, err)
@@ -189,7 +194,7 @@ func (s *HTTPServer) Run(ctx context.Context) error {
 
 func (s *HTTPServer) Serve(ctx context.Context, listener net.Listener) error {
 	if ctx == nil {
-		ctx = context.Background()
+		return ErrNilContext
 	}
 
 	serveResult := make(chan error, 1)

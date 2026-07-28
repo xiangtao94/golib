@@ -12,76 +12,11 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
-	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 	ormUtil "gorm.io/gorm/utils"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
-
-type CrudModel struct {
-	CreatedAt time.Time      `json:"createdAt" gorm:"comment:创建时间"`
-	UpdatedAt time.Time      `json:"updatedAt" gorm:"comment:最后更新时间"`
-	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;comment:删除时间"`
-}
-
-type SortDirection string
-
-const (
-	SortAscending  SortDirection = "asc"
-	SortDescending SortDirection = "desc"
-)
-
-type NormalPage struct {
-	No            int           `json:"page"`          // 当前第几页
-	Size          int           `json:"pageSize"`      // 每页大小
-	SortBy        string        `json:"sortBy"`        // 对外暴露的逻辑字段名
-	SortDirection SortDirection `json:"sortDirection"` // asc 或 desc
-}
-
-func (page *NormalPage) orderClause(allowedFields map[string]string) clause.OrderByColumn {
-	columnName := "id"
-	if page != nil {
-		if mapped, ok := allowedFields[page.SortBy]; ok && mapped != "" {
-			columnName = mapped
-		}
-	}
-
-	return clause.OrderByColumn{
-		Column: clause.Column{Name: columnName},
-		Desc:   page != nil && page.SortDirection == SortDescending,
-	}
-}
-
-type Option struct {
-	IsNeedCnt  bool `json:"isNeedCnt"`
-	IsNeedPage bool `json:"isNeedPage"`
-}
-
-// NormalPaginate returns a safe pagination scope. allowedFields maps
-// public sort names to trusted database column names.
-func NormalPaginate(page *NormalPage, allowedFields map[string]string) func(db *gorm.DB) *gorm.DB {
-	return func(db *gorm.DB) *gorm.DB {
-		pageNo := 1
-		if page != nil && page.No > 0 {
-			pageNo = page.No
-		}
-
-		pageSize := 0
-		if page != nil {
-			pageSize = page.Size
-		}
-		switch {
-		case pageSize > 100:
-			pageSize = 100
-		case pageSize <= 0:
-			pageSize = 10
-		}
-
-		offset := (pageNo - 1) * pageSize
-		return db.Order(page.orderClause(allowedFields)).Offset(offset).Limit(pageSize)
-	}
-}
 
 type MysqlConf struct {
 	DataBase        string        `yaml:"database"`
@@ -228,7 +163,7 @@ func newLogger() *ormLogger {
 
 // go-sql-driver error log
 func (l *ormLogger) Print(args ...interface{}) {
-	l.logger.Error(fmt.Sprint(args...), l.AppendCustomField(nil)...)
+	l.logger.Error(fmt.Sprint(args...), l.AppendCustomField(context.Background())...)
 }
 
 func (l *ormLogger) LogMode(level logger.LogLevel) logger.Interface {
@@ -273,54 +208,8 @@ func (l *ormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 }
 
 func (l *ormLogger) AppendCustomField(ctx context.Context) []zlog.Field {
-	requestID := ""
-	if ctx != nil {
-		requestID = zlog.GetRequestID(ctx)
-	}
 	fields := []zlog.Field{
-		zlog.String("requestId", requestID),
+		zlog.String("requestId", zlog.GetRequestID(ctx)),
 	}
 	return fields
-}
-
-// TransactionManager 事务管理器
-type TransactionManager struct {
-	ctx context.Context
-	db  *gorm.DB
-}
-
-// NewTransactionManager 创建事务管理器
-func NewTransactionManager(ctx context.Context, client *gorm.DB) *TransactionManager {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	return &TransactionManager{
-		ctx: ctx,
-		db:  client.WithContext(ctx),
-	}
-}
-
-// ExecuteInTransaction 在事务中执行操作
-func (tm *TransactionManager) ExecuteInTransaction(operations ...func(*gorm.DB) error) error {
-	tx := tm.db.Begin()
-
-	defer func() {
-		if r := recover(); r != nil {
-			tx.Rollback()
-			panic(r)
-		}
-	}()
-
-	for _, operation := range operations {
-		if err := operation(tx); err != nil {
-			tx.Rollback()
-			return fmt.Errorf("transaction execute error: %w", err)
-		}
-	}
-
-	if err := tx.Commit().Error; err != nil {
-		return fmt.Errorf("transaction commit error: %w", err)
-	}
-
-	return nil
 }

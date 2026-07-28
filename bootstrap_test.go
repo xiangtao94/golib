@@ -64,6 +64,24 @@ func TestHTTPServerServeStopsWhenContextIsCanceled(t *testing.T) {
 	}
 }
 
+func TestHTTPServerServeRejectsNilContext(t *testing.T) {
+	server := NewHTTPServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not be called")
+	}), DefaultHTTPServerConfig(0))
+
+	//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+	require.ErrorIs(t, server.Serve(nil, nil), ErrNilContext)
+}
+
+func TestHTTPServerRunRejectsNilContextBeforeListening(t *testing.T) {
+	server := NewHTTPServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("handler must not be called")
+	}), HTTPServerConfig{Addr: "invalid-address"})
+
+	//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+	require.ErrorIs(t, server.Run(nil), ErrNilContext)
+}
+
 func TestRegisterPprofExplicitlyRegistersHandlers(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

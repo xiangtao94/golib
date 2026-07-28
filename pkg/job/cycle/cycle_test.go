@@ -31,6 +31,19 @@ func TestCyclePropagatesCancellationAndStops(t *testing.T) {
 	require.NoError(t, scheduler.Stop(stopCtx))
 }
 
+func TestCycleRejectsNilLifecycleContexts(t *testing.T) {
+	scheduler := New()
+
+	require.PanicsWithValue(t, "cycle: nil context", func() {
+		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+		scheduler.Start(nil)
+	})
+	require.PanicsWithValue(t, "cycle: nil context", func() {
+		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+		_ = scheduler.Stop(nil)
+	})
+}
+
 func TestCycleRetriesPanicsAsErrors(t *testing.T) {
 	scheduler := New()
 	var attempts atomic.Int32

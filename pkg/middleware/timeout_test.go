@@ -13,7 +13,7 @@ import (
 func TestTimeoutMiddlewareDoesNotRunGinChainConcurrently(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.Use(TimeoutMiddleware(5 * time.Millisecond))
+	engine.Use(TimeoutMiddleware(5*time.Millisecond, nil))
 	engine.GET("/slow", func(c *gin.Context) {
 		time.Sleep(30 * time.Millisecond)
 		c.Status(http.StatusNoContent)
@@ -30,7 +30,7 @@ func TestTimeoutMiddlewareDoesNotRunGinChainConcurrently(t *testing.T) {
 func TestTimeoutMiddlewareReturnsGatewayTimeoutWhenHandlerHonorsCancellation(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	engine.Use(TimeoutMiddleware(5 * time.Millisecond))
+	engine.Use(TimeoutMiddleware(5*time.Millisecond, nil))
 	engine.GET("/cooperative", func(c *gin.Context) {
 		<-c.Request.Context().Done()
 	})
@@ -39,5 +39,7 @@ func TestTimeoutMiddlewareReturnsGatewayTimeoutWhenHandlerHonorsCancellation(t *
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/cooperative", nil))
 
 	require.Equal(t, http.StatusGatewayTimeout, response.Code)
-	require.JSONEq(t, `{"code":504,"message":"请求超时"}`, response.Body.String())
+	require.Contains(t, response.Body.String(), `"code":"DEADLINE_EXCEEDED"`)
+	require.Contains(t, response.Body.String(), `"reason":"TIMEOUT"`)
+	require.Contains(t, response.Body.String(), `"request_id":`)
 }

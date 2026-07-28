@@ -130,7 +130,7 @@ func (c *Cron) Location() *time.Location {
 // no-op. The scheduler can be started again after a completed Stop.
 func (c *Cron) Start(parent context.Context) {
 	if parent == nil {
-		parent = context.Background()
+		panic("cron: nil context")
 	}
 
 	c.mu.Lock()
@@ -247,7 +247,7 @@ func (c *Cron) signalWake() {
 // Stop cancels scheduling and waits for the scheduler and in-flight jobs.
 func (c *Cron) Stop(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		panic("cron: nil context")
 	}
 
 	c.mu.RLock()

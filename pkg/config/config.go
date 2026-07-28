@@ -2,14 +2,18 @@
 package config
 
 import (
+	"encoding"
 	"errors"
 	"fmt"
 	"io/fs"
 	"reflect"
 	"strings"
 
+	"github.com/go-viper/mapstructure/v2"
 	"github.com/spf13/viper"
 )
+
+var textUnmarshalerType = reflect.TypeFor[encoding.TextUnmarshaler]()
 
 type Options struct {
 	// File is an optional exact config file path. When set, the file must
@@ -62,7 +66,14 @@ func Load[T any](options Options, validate ValidateFunc[T]) (T, error) {
 		}
 	}
 
-	if err := instance.UnmarshalExact(&result); err != nil {
+	if err := instance.UnmarshalExact(
+		&result,
+		viper.DecodeHook(mapstructure.ComposeDecodeHookFunc(
+			mapstructure.StringToTimeDurationHookFunc(),
+			mapstructure.StringToSliceHookFunc(","),
+			mapstructure.TextUnmarshallerHookFunc(),
+		)),
+	); err != nil {
 		return result, fmt.Errorf("decode config: %w", err)
 	}
 	if validate != nil {
@@ -112,7 +123,7 @@ func configKeys(valueType reflect.Type, prefix string) ([]string, error) {
 		for fieldType.Kind() == reflect.Pointer {
 			fieldType = fieldType.Elem()
 		}
-		if fieldType.Kind() == reflect.Struct {
+		if fieldType.Kind() == reflect.Struct && !isTextScalar(fieldType) {
 			nested, err := configKeys(fieldType, fieldPrefix)
 			if err != nil {
 				return nil, err
@@ -123,6 +134,11 @@ func configKeys(valueType reflect.Type, prefix string) ([]string, error) {
 		keys = append(keys, fieldPrefix)
 	}
 	return keys, nil
+}
+
+func isTextScalar(valueType reflect.Type) bool {
+	return valueType.Implements(textUnmarshalerType) ||
+		reflect.PointerTo(valueType).Implements(textUnmarshalerType)
 }
 
 func fieldName(field reflect.StructField) (name string, squash bool, skip bool) {

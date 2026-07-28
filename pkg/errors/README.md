@@ -1,17 +1,22 @@
-# 多语言错误
+# errors
 
-`errors.Error` 是可复制的业务错误值，包含业务码、HTTP status 和多语言消息。核心错误处理只依赖标准 context。
+`Error` 是不可变的公共服务错误，稳定契约包含：
+
+- machine-readable `code` 和 `reason`；
+- HTTP status；
+- 对外 message；
+- retryable；
+- 可选 details；
+- 只供日志和 `errors.Is` / `errors.As` 使用的私有 cause。
 
 ```go
-var ErrUserNotFound = errors.NewError(1001, map[string]string{
-	"zh": "用户不存在",
-	"en": "User not found",
-}).WithHTTPStatus(http.StatusNotFound)
+var ErrUserNotFound = errors.New(
+	"USER_NOT_FOUND",
+	"user not found",
+	http.StatusNotFound,
+).WithReason("NOT_FOUND")
 
-ctx := env.WithLanguage(context.Background(), env.LanguageEnglish)
-message := ErrUserNotFound.GetMessage(ctx)
+return ErrUserNotFound.Wrap(databaseErr)
 ```
 
-`Sprintf` 返回格式化后的副本，不修改共享错误值。`WithHTTPStatus` 只接受 4xx/5xx；非法值归一为 500。
-
-预置错误包括 `ErrorParamInvalid`、`ErrorSystemError`、`ErrorUserNotLogin`、`ErrorInvalidRequest` 和 `ErrorDefault`。HTTP 输出由 `render.JSONRenderer` 负责，业务逻辑不应依赖 Gin。
+`Error()` 不包含 cause。未知错误经 `From` 转为安全的 `INTERNAL`，不会把内部错误文本返回客户端。业务错误码和本地化消息由拥有该业务的服务定义。

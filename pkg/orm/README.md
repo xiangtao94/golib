@@ -20,28 +20,17 @@ if err != nil {
 
 默认要求验证 TLS。仅本地开发确需明文时，必须显式设置 `AllowInsecureTransport: true`。零值连接池与 timeout 会使用 package 默认值。
 
-## 安全分页
-
-```go
-scope := orm.NormalPaginate(page, map[string]string{
-	"createdAt": "created_at",
-	"name":      "name",
-})
-err := db.Scopes(scope).Find(&users).Error
-```
-
-调用方必须提供公开排序名到可信数据库列名的 allowlist，避免把用户输入直接拼入 `ORDER BY`。page size 上限为 100。
-
 ## 事务与指标
 
 ```go
-manager := orm.NewTransactionManager(ctx, db)
-err := manager.ExecuteInTransaction(
-	func(tx *gorm.DB) error { return tx.Create(&user).Error },
-	func(tx *gorm.DB) error { return tx.Create(&auditEvent).Error },
-)
+err := db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+	if err := tx.Create(&user).Error; err != nil {
+		return err
+	}
+	return tx.Create(&existingBusinessRecord).Error
+})
 ```
 
-业务数据和审计数据仍由业务选择现有存储；基础库不会为了审计创建额外业务存储。
+分页、排序、模型字段和事务内操作都属于业务 repository。adapter 不替业务定义查询策略，也不会为了审计创建额外业务存储。
 
 `NewMySQLPrometheusCollector` 返回标准 collector，由根 module 的 metrics middleware 注册。

@@ -6,10 +6,16 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
+
+	serviceerrors "github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/render"
 )
 
 // TimeoutMiddleware 超时控制中间件
-func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
+func TimeoutMiddleware(timeout time.Duration, renderer *render.JSONRenderer) gin.HandlerFunc {
+	if renderer == nil {
+		renderer = render.NewJSONRenderer(nil)
+	}
 	return func(c *gin.Context) {
 		ctx, cancel := context.WithTimeout(c.Request.Context(), timeout)
 		defer cancel()
@@ -23,10 +29,8 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		if ctx.Err() == context.DeadlineExceeded &&
 			!c.Writer.Written() &&
 			c.Writer.Status() == http.StatusOK {
-			c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
-				"code":    http.StatusGatewayTimeout,
-				"message": "请求超时",
-			})
+			c.Abort()
+			renderer.Failure(c, serviceerrors.ErrDeadlineExceeded)
 		}
 	}
 }

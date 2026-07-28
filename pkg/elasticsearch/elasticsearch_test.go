@@ -55,6 +55,15 @@ func TestElasticsearchBodyLoggingIsOffByDefault(t *testing.T) {
 	require.Nil(t, response)
 }
 
+func TestAppendContextRejectsNilContext(t *testing.T) {
+	client := &ElasticsearchClient{}
+
+	require.PanicsWithValue(t, "elasticsearch: nil context", func() {
+		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+		client.appendContext(nil)
+	})
+}
+
 func assertLogRoundTripDoesNotPanic(t *testing.T, logRoundTrip func() error) {
 	t.Helper()
 

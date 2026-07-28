@@ -17,7 +17,7 @@ import (
 	"go.uber.org/zap"
 	"go.uber.org/zap/zaptest/observer"
 
-	httpclient "github.com/xiangtao94/golib/pkg/http"
+	"github.com/xiangtao94/golib/pkg/httpclient"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
@@ -76,8 +76,9 @@ func TestHTTPTransportInjectsTraceContext(t *testing.T) {
 		TracerProvider: provider,
 		Propagators:    propagation.TraceContext{},
 	})
-	client, err := httpclient.NewClient(httpclient.ClientConfig{
-		Domain:              "http://payment.internal",
+	client, err := httpclient.New(httpclient.Config{
+		BaseURL:             "http://payment.internal",
+		AllowHTTP:           true,
 		Transport:           base,
 		TransportMiddleware: []httpclient.TransportMiddleware{middleware},
 	})
@@ -85,7 +86,7 @@ func TestHTTPTransportInjectsTraceContext(t *testing.T) {
 	ctx, span := provider.Tracer("test").Start(context.Background(), "parent")
 	defer span.End()
 
-	_, err = client.Get(ctx, httpclient.RequestOptions{})
+	_, err = client.R().SetContext(ctx).Get("")
 
 	require.NoError(t, err)
 	require.NotEmpty(t, traceParent)

@@ -100,7 +100,7 @@ func (c *Cycle) AddFuncWithConfig(
 // an idempotent no-op. Cancellation of parent has the same effect as Stop.
 func (c *Cycle) Start(parent context.Context) {
 	if parent == nil {
-		parent = context.Background()
+		panic("cycle: nil context")
 	}
 
 	c.mu.Lock()
@@ -136,7 +136,7 @@ func (c *Cycle) Start(parent context.Context) {
 // ctx, so callers control their shutdown budget.
 func (c *Cycle) Stop(ctx context.Context) error {
 	if ctx == nil {
-		ctx = context.Background()
+		panic("cycle: nil context")
 	}
 
 	c.mu.Lock()

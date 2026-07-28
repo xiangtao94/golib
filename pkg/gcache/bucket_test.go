@@ -1710,7 +1710,7 @@ func TestGetWithExpiration(t *testing.T) {
 		t.Error("expiration for d is not a zeroed time")
 	}
 
-	x, expiration, found = tc.GetWithExpiration("e")
+	x, _, found = tc.GetWithExpiration("e")
 	if !found {
 		t.Error("e was not found while getting e2")
 	}

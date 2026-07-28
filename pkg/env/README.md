@@ -1,6 +1,6 @@
 # env
 
-`env` 是 Core module 内的配置 package，不依赖 Gin，也不根据 Web framework mode 猜测部署环境。
+`env` 是 Core module 内的进程环境 package，不依赖 Gin，也不根据 Web framework mode 猜测部署环境。Typed 配置加载由 `pkg/config` 独立拥有。
 
 ## 应用设置
 
@@ -19,22 +19,4 @@ ctx := env.WithLanguage(context.Background(), env.LanguageEnglish)
 language := env.LanguageFromContext(ctx)
 ```
 
-## 配置
-
-推荐为所有配置项提供默认值，以便 Viper 能稳定绑定对应环境变量：
-
-```go
-defaults := map[string]any{
-	"server.host": "127.0.0.1",
-	"server.port": 8080,
-}
-
-var config Config
-if err := env.LoadConfWithDefaults("app", "production", defaults, &config); err != nil {
-	return err
-}
-```
-
-配置文件路径为 `<root>/conf/<subConf>/<filename>.yaml`。优先级是环境变量 > 配置文件 > 默认值，环境变量格式为 `<APP_NAME>_<KEY>`，嵌套点号转换为下划线，例如 `USERS_SERVER_PORT`。
-
-缺少配置文件不是 error；格式错误和反序列化错误会返回 error。package 不提供 panic 型加载或隐式热更新。需要监听时，由业务通过 `NewViperInstance` 明确持有 Viper 生命周期。
+配置文件、defaults、环境变量绑定和启动校验使用 [`pkg/config`](../config/README.md)。`env` 不暴露 Viper，也不提供配置热更新。

@@ -154,19 +154,21 @@ for _, hit := range resp.Hits.Hits {
 
 ## 日志配置
 
-客户端会自动记录所有请求和响应的详细信息，可以通过环境变量控制日志输出长度：
+请求和响应 body 日志默认关闭。需要时通过客户端配置显式设置正数上限：
 
-```bash
-export ES_LOG_MAX_REQ_LEN=1024    # 请求体的最大展示长度
-export ES_LOG_MAX_RESP_LEN=10240  # 响应体的最大展示长度
+```go
+client, err := elasticsearch.InitESClient(elasticsearch.ElasticConf{
+    Addr:           "https://localhost:9200",
+    MaxReqBodyLen:  1024,
+    MaxRespBodyLen: 10240,
+})
 ```
 
-- 设置为 0 使用默认长度
-- 设置为 -1 不打印对应内容
+零值和负数均不记录对应 body。
 
 ## 注意事项
 
 - 批量插入限制为 3000 条文档
 - 所有操作都会自动生成唯一的文档ID（基于时间戳和UUID的SHA256哈希）
 - 客户端会自动处理超时检测和错误处理
-- 支持 Gin 框架的上下文传递，自动记录请求ID 
+- 支持 Gin 框架的上下文传递，自动记录请求ID

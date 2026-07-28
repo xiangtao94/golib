@@ -19,9 +19,12 @@ jobs:
           - pkg/elasticsearch
           - pkg/mcp
           - pkg/milvus
+          - pkg/mongodb
           - pkg/orm
-          - pkg/oss
+          - pkg/otel
           - pkg/redis
+          - pkg/s3
+          - testdata/consumer
 
     steps:
       - uses: actions/checkout@v4
@@ -37,3 +40,11 @@ jobs:
       - name: Vet
         working-directory: ${{ matrix.module }}
         run: GOWORK=off go vet ./...
+
+      - name: Staticcheck correctness checks
+        working-directory: ${{ matrix.module }}
+        run: GOWORK=off go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -checks='SA*' ./...
+
+      - name: Vulnerability scan
+        working-directory: ${{ matrix.module }}
+        run: GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...

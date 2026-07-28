@@ -30,6 +30,19 @@ func TestCronUsesCallerContextAndStops(t *testing.T) {
 	require.NoError(t, scheduler.Stop(stopCtx))
 }
 
+func TestCronRejectsNilLifecycleContexts(t *testing.T) {
+	scheduler := New()
+
+	require.PanicsWithValue(t, "cron: nil context", func() {
+		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+		scheduler.Start(nil)
+	})
+	require.PanicsWithValue(t, "cron: nil context", func() {
+		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+		_ = scheduler.Stop(nil)
+	})
+}
+
 func TestCronWaitsForInflightJobs(t *testing.T) {
 	scheduler := New()
 	started := make(chan struct{})

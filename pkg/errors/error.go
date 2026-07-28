@@ -151,4 +151,10 @@ var (
 	ErrPermissionDenied = New("PERMISSION_DENIED", "permission denied", http.StatusForbidden)
 	ErrNotFound         = New("NOT_FOUND", "resource not found", http.StatusNotFound)
 	ErrConflict         = New("CONFLICT", "resource conflict", http.StatusConflict)
+	ErrDeadlineExceeded = New("DEADLINE_EXCEEDED", "request deadline exceeded", http.StatusGatewayTimeout).
+				WithReason("TIMEOUT").
+				WithRetryable(true)
+	ErrResourceExhausted = New("RESOURCE_EXHAUSTED", "request rate limit exceeded", http.StatusTooManyRequests).
+				WithReason("RATE_LIMITED").
+				WithRetryable(true)
 )

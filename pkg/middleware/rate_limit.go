@@ -2,12 +2,14 @@ package middleware
 
 import (
 	"net"
-	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"golang.org/x/time/rate"
+
+	serviceerrors "github.com/xiangtao94/golib/pkg/errors"
+	"github.com/xiangtao94/golib/pkg/render"
 )
 
 type RateLimitKeyFunc func(*gin.Context) string
@@ -18,6 +20,7 @@ type RateLimiterConfig struct {
 	TTL        time.Duration
 	MaxEntries int
 	Key        RateLimitKeyFunc
+	Renderer   *render.JSONRenderer
 }
 
 type limiterEntry struct {
@@ -120,13 +123,15 @@ func RateLimitMiddleware(config RateLimiterConfig) gin.HandlerFunc {
 	if keyFunc == nil {
 		keyFunc = DirectClientIP
 	}
+	renderer := config.Renderer
+	if renderer == nil {
+		renderer = render.NewJSONRenderer(nil)
+	}
 
 	return func(ctx *gin.Context) {
 		if !limiter.allow(keyFunc(ctx), time.Now()) {
-			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
-				"code":    http.StatusTooManyRequests,
-				"message": "请求过于频繁，请稍后再试",
-			})
+			ctx.Abort()
+			renderer.Failure(ctx, serviceerrors.ErrResourceExhausted)
 			return
 		}
 		ctx.Next()

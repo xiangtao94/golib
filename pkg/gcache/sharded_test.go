@@ -7,8 +7,16 @@ import (
 	"time"
 )
 
-// func TestDjb33(t *testing.T) {
-// }
+func TestDjb33UsesEveryKeyByte(t *testing.T) {
+	const seed = 42
+
+	if djb33(seed, "a") == djb33(seed, "b") {
+		t.Fatal("single-byte keys must not hash to the same value")
+	}
+	if djb33(seed, "prefix-a") == djb33(seed, "prefix-b") {
+		t.Fatal("the final key byte must affect the hash")
+	}
+}
 
 var shardedKeys = []string{
 	"f",
@@ -65,7 +73,7 @@ func benchmarkShardedCacheGetManyConcurrent(b *testing.B, exp time.Duration) {
 	tsc := NewBucketCache(exp, 0, 20)
 	keys := make([]string, n)
 	for i := 0; i < n; i++ {
-		k := "foo" + strconv.Itoa(n)
+		k := "foo" + strconv.Itoa(i)
 		keys[i] = k
 		tsc.Set(k, "bar", DefaultExpiration)
 	}

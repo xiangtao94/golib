@@ -43,22 +43,6 @@ type SearchResult struct {
 	Fields map[string]interface{} // 其他字段
 }
 
-// CollectionInfo 集合信息
-type CollectionInfo struct {
-	Name        string
-	Description string
-	ShardsNum   int32
-	Schema      *entity.Schema
-}
-
-// IndexInfo 索引信息
-type IndexInfo struct {
-	FieldName  string
-	IndexType  milvusindex.IndexType
-	MetricType entity.MetricType
-	Params     map[string]string
-}
-
 // NewMilvusClient 创建Milvus客户端
 func NewMilvusClient(config MilvusConf) (*MilvusClient, error) {
 	connectParam := &milvusclient.ClientConfig{

@@ -7,8 +7,6 @@
 - ✅ **Universal Client**: 支持单机、集群、哨兵模式
 - ✅ **连接池管理**: 优化的连接池配置和管理
 - ✅ **完整日志**: 集成 zlog 记录所有 Redis 操作
-- ✅ **预定义常量**: 提供常用的缓存过期时间常量
-- ✅ **键名前缀**: 自动管理应用级别的键名前缀
 - ✅ **超时控制**: 可配置的连接、读写超时时间
 - ✅ **重试机制**: 内置的请求重试策略
 
@@ -40,13 +38,9 @@ package main
 import (
     "time"
     "github.com/xiangtao94/golib/pkg/redis"
-    "github.com/xiangtao94/golib/pkg/env"
 )
 
 func main() {
-    // 设置应用名称（用于键名前缀）
-    env.SetAppName("myapp")
-    
     conf := redis.RedisConf{
         Addr:            "localhost:6379",
         Db:              0,
@@ -68,27 +62,6 @@ func main() {
 }
 ```
 
-## 预定义过期时间常量
-
-```go
-const (
-    EXPIRE_TIME_1_SECOND  = 1
-    EXPIRE_TIME_5_SECOND  = 5
-    EXPIRE_TIME_30_SECOND = 30
-    EXPIRE_TIME_1_MINUTE  = 60
-    EXPIRE_TIME_5_MINUTE  = 300
-    EXPIRE_TIME_15_MINUTE = 900
-    EXPIRE_TIME_30_MINUTE = 1800
-    EXPIRE_TIME_1_HOUR    = 3600
-    EXPIRE_TIME_2_HOUR    = 7200
-    EXPIRE_TIME_6_HOUR    = 21600
-    EXPIRE_TIME_12_HOUR   = 43200
-    EXPIRE_TIME_1_DAY     = 86400
-    EXPIRE_TIME_3_DAY     = 259200
-    EXPIRE_TIME_1_WEEK    = 604800
-)
-```
-
 ## 使用示例
 
 ### 基本操作
@@ -97,7 +70,7 @@ const (
 ctx := context.Background()
 
 // 字符串操作
-err := client.Set(ctx, "key", "value", time.Duration(redis.EXPIRE_TIME_1_HOUR)*time.Second).Err()
+err := client.Set(ctx, "key", "value", time.Hour).Err()
 if err != nil {
     log.Fatal(err)
 }
@@ -173,17 +146,6 @@ fmt.Println("go exists:", exists)
 // 获取所有成员
 members, err := client.SMembers(ctx, "tags").Result()
 fmt.Println("tags:", members)
-```
-
-### 键名前缀管理
-
-```go
-// 获取带前缀的键名
-prefix := redis.GetKeyPrefix() // 返回 "myapp:"
-fullKey := prefix + "user:1001" // "myapp:user:1001"
-
-// 使用带前缀的键名
-err := client.Set(ctx, fullKey, "张三", time.Hour).Err()
 ```
 
 ### 管道操作
@@ -285,9 +247,6 @@ import (
 )
 
 func main() {
-    // 设置应用名称
-    env.SetAppName("webapp")
-    
     // 配置Redis客户端
     conf := redis.RedisConf{
         Addr:        "localhost:6379",
@@ -307,7 +266,7 @@ func main() {
     // 缓存用户信息
     r.GET("/user/:id", func(c *gin.Context) {
         userID := c.Param("id")
-        cacheKey := redis.GetKeyPrefix() + "user:" + userID
+        cacheKey := "webapp:user:" + userID
         
         // 尝试从缓存获取
         cached, err := client.Get(c, cacheKey).Result()
@@ -323,7 +282,7 @@ func main() {
         }
         
         // 存入缓存
-        client.Set(c, cacheKey, userData, time.Duration(redis.EXPIRE_TIME_1_HOUR)*time.Second)
+        client.Set(c, cacheKey, userData, time.Hour)
         
         c.JSON(200, gin.H{"data": userData, "from": "database"})
     })
@@ -335,7 +294,7 @@ func main() {
 ## 注意事项
 
 - 客户端支持单机、集群、哨兵等多种部署模式
-- 键名会自动添加应用名称前缀，避免不同应用间的键名冲突
+- 键名命名空间属于业务约定，应由调用方显式构造
 - 连接池会自动管理连接的创建和回收
 - 所有操作都会记录详细日志，便于调试和监控
-- 重试机制会自动处理网络抖动等临时故障 
+- 重试机制会自动处理网络抖动等临时故障

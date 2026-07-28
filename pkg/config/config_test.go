@@ -15,17 +15,25 @@ type testConfig struct {
 		Host    string        `mapstructure:"host"`
 		Timeout time.Duration `mapstructure:"timeout"`
 	} `mapstructure:"database"`
+	StartsAt time.Time `mapstructure:"starts_at"`
 }
 
 func TestLoadReadsEnvironmentOnlyFields(t *testing.T) {
 	t.Setenv("CONFIG_TEST_DATABASE_HOST", "db.internal")
 	t.Setenv("CONFIG_TEST_DATABASE_TIMEOUT", "3s")
+	t.Setenv("CONFIG_TEST_STARTS_AT", "2026-07-28T09:30:00+08:00")
 
 	got, err := Load[testConfig](Options{EnvPrefix: "CONFIG_TEST"}, nil)
 
 	require.NoError(t, err)
 	require.Equal(t, "db.internal", got.Database.Host)
 	require.Equal(t, 3*time.Second, got.Database.Timeout)
+	require.True(
+		t,
+		got.StartsAt.Equal(
+			time.Date(2026, time.July, 28, 9, 30, 0, 0, time.FixedZone("", 8*60*60)),
+		),
+	)
 }
 
 func TestLoadAppliesDefaultsFileAndEnvironmentInOrder(t *testing.T) {

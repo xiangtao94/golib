@@ -56,14 +56,17 @@ func TestMilvusClientRejectsInvalidInputBeforeCallingSDK(t *testing.T) {
 
 	require.EqualError(
 		t,
+		//lint:ignore SA1012 This test verifies validation before context use.
 		client.CreateCollection(nil, "collection", 0, ""),
 		"collection dimension must be greater than zero",
 	)
 	require.EqualError(
 		t,
+		//lint:ignore SA1012 This test verifies validation before context use.
 		client.CreateCollectionWithSchema(nil, nil, 1),
 		"collection schema must not be nil",
 	)
+	//lint:ignore SA1012 This test verifies validation before context use.
 	_, err := client.SearchVectors(nil, "collection", [][]float32{{1}}, 0, SearchOptions{})
 	require.EqualError(t, err, "topK must be greater than zero")
 }

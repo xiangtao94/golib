@@ -4,17 +4,19 @@
 
 ## Module
 
-仓库采用 1 个 Core module + 6 个可选 adapter module，并通过 `go.work` 联合开发：
+仓库采用 1 个 Core module + 8 个可选 module，并通过 `go.work` 联合开发：
 
 | Module | Interface |
 |---|---|
-| `github.com/xiangtao94/golib` | Core：HTTP server、Web adapter、env、zlog、middleware、HTTP client、job、render |
+| `github.com/xiangtao94/golib` | Core：config、lifecycle、health、HTTP server、Web adapter、env、zlog、middleware、HTTP client、job、render |
 | `.../pkg/elasticsearch` | Elasticsearch adapter |
 | `.../pkg/mcp` | MCP Gin transport |
 | `.../pkg/milvus` | Milvus adapter |
+| `.../pkg/mongodb` | 官方 MongoDB Go Driver adapter |
 | `.../pkg/orm` | MySQL/GORM adapter |
-| `.../pkg/oss` | MinIO adapter |
+| `.../pkg/otel` | 可选 OpenTelemetry instrumentation |
 | `.../pkg/redis` | Redis adapter |
+| `.../pkg/s3` | AWS S3 与 S3-compatible object storage adapter |
 
 业务默认只依赖 Core，并按需增加 adapter。Core 不依赖任何可选 adapter；adapter 只单向依赖 Core 中稳定的 context 日志与配置 package。`env` 和 `zlog` 虽属于 Core module，但 package 本身不依赖 Gin。
 
@@ -25,17 +27,25 @@ go get github.com/xiangtao94/golib@<core-version>
 
 # 按需安装，不使用就不会进入业务 module graph
 go get github.com/xiangtao94/golib/pkg/orm@<adapter-version>
+go get github.com/xiangtao94/golib/pkg/mongodb@<adapter-version>
+go get github.com/xiangtao94/golib/pkg/otel@<instrumentation-version>
 go get github.com/xiangtao94/golib/pkg/redis@<adapter-version>
+go get github.com/xiangtao94/golib/pkg/s3@<adapter-version>
 ```
 
 业务代码按 package import：
 
 ```go
 import (
+	"github.com/xiangtao94/golib/pkg/config"
 	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/health"
+	"github.com/xiangtao94/golib/pkg/httpclient"
+	"github.com/xiangtao94/golib/pkg/lifecycle"
 	"github.com/xiangtao94/golib/pkg/web"
 	"github.com/xiangtao94/golib/pkg/zlog"
 
+	"github.com/xiangtao94/golib/pkg/mongodb"
 	"github.com/xiangtao94/golib/pkg/orm"
 )
 ```
@@ -88,9 +98,10 @@ engine.POST("/users", web.Handle[CreateUserRequest](controller))
 ## 安全默认值
 
 - Access log 默认不记录请求/响应 body；启用时必须配置正数上限和 sanitizer。
-- HTTP client 的 body 日志默认关闭，`RetryCount == 0` 表示不重试。
+- HTTP client 不记录 header/body，`RetryCount == 0` 表示不重试；HTTP
+  明文地址必须显式开启。
 - CORS 必须提供明确 allowlist；rate limit 默认不信任转发头。
-- MySQL、Redis、MinIO 默认要求验证 TLS；明文只可显式开启。
+- MySQL、MongoDB、Redis、S3 默认要求验证 TLS；明文只可显式开启。
 - Prometheus 使用路由模板和状态分类，避免高基数 label。
 - 文件日志默认关闭；启用后由 lumberjack 按大小轮转，不承诺自然日切割。
 
@@ -99,15 +110,22 @@ engine.POST("/users", web.Handle[CreateUserRequest](controller))
 - [架构与 interface 归属](ARCHITECTURE.md)
 - [破坏性迁移说明](MIGRATION.md)
 - [Web Controller adapter](pkg/web/README.md)
-- [HTTP client](pkg/http/README.md)
+- [HTTP client](pkg/httpclient/README.md)
+- [MongoDB adapter](pkg/mongodb/README.md)
 
 ## 验证
 
 测试与源码同 package 放置为 `*_test.go`。只有 fixture 放入 `testdata/`；不建立顶层 `tests/`，避免测试跨 module 导入内部实现。
 
 ```bash
-modules=(. pkg/elasticsearch pkg/mcp pkg/milvus pkg/orm pkg/oss pkg/redis)
+modules=(. pkg/elasticsearch pkg/mcp pkg/milvus pkg/mongodb pkg/orm pkg/otel pkg/redis pkg/s3 testdata/consumer)
 for module in "${modules[@]}"; do
-	(cd "$module" && GOWORK=off go test -race ./... && GOWORK=off go vet ./...)
+	(
+		cd "$module" &&
+		GOWORK=off go test -race ./... &&
+		GOWORK=off go vet ./... &&
+		GOWORK=off go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -checks='SA*' ./... &&
+		GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+	)
 done
 ```

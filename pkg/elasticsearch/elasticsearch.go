@@ -20,11 +20,6 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-const (
-	ES_LOG_MAX_REQ_LEN  = "ES_LOG_MAX_REQ_LEN"
-	ES_LOG_MAX_RESP_LEN = "ES_LOG_MAX_RESP_LEN"
-)
-
 type ElasticConf struct {
 	Addr          string `yaml:"addr"`
 	Username      string `yaml:"username"`
@@ -296,7 +291,7 @@ type readCloser struct {
 
 func (ec *ElasticsearchClient) appendContext(ctx context.Context) context.Context {
 	if ctx == nil {
-		ctx = context.Background()
+		panic("elasticsearch: nil context")
 	}
 	return context.WithValue(ctx, logLimitContextKey{}, logLimits{
 		request:  normalizeLogLimit(ec.MaxReqBodyLen),
