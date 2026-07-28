@@ -31,3 +31,6 @@ log/
 
 go.sock
 .DS_Store
+
+tasks
+docs
