@@ -50,8 +50,6 @@ import (
 )
 ```
 
-仓库内 adapter `go.mod` 的本地 `replace github.com/xiangtao94/golib => ../..` 只用于关闭 `go.work` 后的独立测试。下游业务不会继承依赖 module 的 `replace`。发布 adapter 前，将其 Core 占位版本更新为已发布的 Core 版本。
-
 ## 启动与关闭
 
 ```go
@@ -107,25 +105,26 @@ engine.POST("/users", web.Handle[CreateUserRequest](controller))
 
 ## 文档
 
-- [架构与 interface 归属](ARCHITECTURE.md)
-- [破坏性迁移说明](MIGRATION.md)
-- [Web Controller adapter](pkg/web/README.md)
-- [HTTP client](pkg/httpclient/README.md)
-- [MongoDB adapter](pkg/mongodb/README.md)
-
-## 验证
-
-测试与源码同 package 放置为 `*_test.go`。只有 fixture 放入 `testdata/`；不建立顶层 `tests/`，避免测试跨 module 导入内部实现。
-
-```bash
-modules=(. pkg/elasticsearch pkg/mcp pkg/milvus pkg/mongodb pkg/orm pkg/otel pkg/redis pkg/s3 testdata/consumer)
-for module in "${modules[@]}"; do
-	(
-		cd "$module" &&
-		GOWORK=off go test -race ./... &&
-		GOWORK=off go vet ./... &&
-		GOWORK=off go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -checks='SA*' ./... &&
-		GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
-	)
-done
-```
+- [模块划分与依赖方向](ARCHITECTURE.md)
+- Core package：
+  [config](pkg/config/README.md)、
+  [env](pkg/env/README.md)、
+  [errors](pkg/errors/README.md)、
+  [gcache](pkg/gcache/README.md)、
+  [health](pkg/health/README.md)、
+  [httpclient](pkg/httpclient/README.md)、
+  [job](pkg/job/README.md)、
+  [lifecycle](pkg/lifecycle/README.md)、
+  [middleware](pkg/middleware/README.md)、
+  [render](pkg/render/README.md)、
+  [web](pkg/web/README.md)、
+  [zlog](pkg/zlog/README.md)
+- 可选 module：
+  [elasticsearch](pkg/elasticsearch/README.md)、
+  [mcp](pkg/mcp/README.md)、
+  [milvus](pkg/milvus/README.md)、
+  [mongodb](pkg/mongodb/README.md)、
+  [orm](pkg/orm/README.md)、
+  [otel](pkg/otel/README.md)、
+  [redis](pkg/redis/README.md)、
+  [s3](pkg/s3/README.md)
