@@ -20,7 +20,7 @@ type ApiRes struct {
 
 type Api struct {
 	EncodeType string
-	Client     *http.ClientConf
+	Client     *http.Client
 }
 
 // api请求数据格式，默认json

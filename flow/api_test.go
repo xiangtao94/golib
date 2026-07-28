@@ -54,7 +54,7 @@ func TestDecodeAPIResponseReturnsTransportErrorFirst(t *testing.T) {
 
 func TestAPIGetContextUsesTheCallContext(t *testing.T) {
 	var requestID string
-	client := &httpclient.ClientConf{
+	client, err := httpclient.NewClient(httpclient.ClientConfig{
 		Domain: "http://example.test",
 		Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
 			requestID = request.Header.Get(zlog.HeaderRequestID)
@@ -65,7 +65,9 @@ func TestAPIGetContextUsesTheCallContext(t *testing.T) {
 				Request:    request,
 			}, nil
 		}),
-	}
+	})
+	require.NoError(t, err)
+	defer client.Close()
 	api := &Api{Client: client}
 	ctx := zlog.WithRequestID(context.Background(), "req-call-context")
 
