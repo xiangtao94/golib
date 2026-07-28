@@ -55,16 +55,11 @@ func (err Error) Sprintf(v ...interface{}) Error {
 
 // GetMessage 获取指定语言的错误信息
 func (err Error) GetMessage(ctx context.Context) string {
-	lang := ""
-	if ctx != nil {
-		lang, _ = ctx.Value(env.I18N_CONTEXT).(string)
-	}
-	// 如果语言不存在，返回默认语言信息
+	lang := env.LanguageFromContext(ctx)
 	if msg, exists := err.Message[lang]; exists {
 		return msg
-	} else {
-		return err.Message[env.GetLanguage()]
 	}
+	return err.Message[env.GetLanguage()]
 }
 
 func defaultHTTPStatus(code int) int {

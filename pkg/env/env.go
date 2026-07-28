@@ -1,7 +1,7 @@
 package env
 
 import (
-	"net"
+	"context"
 	"os"
 	"path/filepath"
 	"sync"
@@ -10,28 +10,22 @@ import (
 const DefaultRootPath = "."
 
 const (
-	I18N_CONTEXT = "_i18n"
-	I18N_ZH      = "zh"
-	I18N_EN      = "en"
+	LanguageChinese = "zh"
+	LanguageEnglish = "en"
+	AppNameEnv      = "APP_NAME"
 )
 
-const (
-	APP_NAME = "XT_APP_NAME"
-)
+type languageContextKey struct{}
 
 var runtimeState = struct {
 	sync.RWMutex
-	localIP  string
 	rootPath string
-	isDocker bool
 	appName  string
 	language string
-}{language: I18N_ZH}
+}{language: LanguageChinese}
 
 func init() {
-	runtimeState.localIP = GetInternalIp()
-	runtimeState.isDocker = os.Getenv("GIN_MODE") == "release"
-	runtimeState.appName = GetEnv(APP_NAME, "XT")
+	runtimeState.appName = GetEnv(AppNameEnv, "app")
 }
 
 // RootPath 返回应用的根目录
@@ -56,21 +50,25 @@ func SetLanguage(lang string) {
 	runtimeState.Unlock()
 }
 
+func WithLanguage(ctx context.Context, language string) context.Context {
+	if ctx == nil {
+		panic("env: nil context")
+	}
+	return context.WithValue(ctx, languageContextKey{}, language)
+}
+
+func LanguageFromContext(ctx context.Context) string {
+	if ctx != nil {
+		if language, ok := ctx.Value(languageContextKey{}).(string); ok && language != "" {
+			return language
+		}
+	}
+	return GetLanguage()
+}
+
 // GetConfDirPath 返回配置文件目录绝对地址
 func GetConfDirPath() string {
 	return filepath.Join(GetRootPath(), "conf")
-}
-
-// LogRootPath 返回log目录的绝对地址
-func GetLogDirPath() string {
-	return filepath.Join(GetRootPath(), "log")
-}
-
-// 判断项目运行平台
-func IsDockerPlatform() bool {
-	runtimeState.RLock()
-	defer runtimeState.RUnlock()
-	return runtimeState.isDocker
 }
 
 // 手动指定SetAppName
@@ -89,32 +87,8 @@ func GetAppName() string {
 // SetRootPath 设置应用的根目录
 func SetRootPath(r string) {
 	runtimeState.Lock()
-	defer runtimeState.Unlock()
-	if !runtimeState.isDocker {
-		runtimeState.rootPath = r
-	}
-}
-
-func GetLocalIP() string {
-	runtimeState.RLock()
-	defer runtimeState.RUnlock()
-	return runtimeState.localIP
-}
-
-func GetInternalIp() string {
-	addr, err := net.InterfaceAddrs()
-	if err != nil {
-		return ""
-	}
-	for _, a := range addr {
-		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {
-			if ipNet.IP.To4() != nil {
-				return ipNet.IP.String()
-			}
-		}
-	}
-
-	return ""
+	runtimeState.rootPath = r
+	runtimeState.Unlock()
 }
 
 func GetEnv(key, fallback string) string {
