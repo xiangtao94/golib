@@ -9,5 +9,6 @@ use (
 	./pkg/milvus
 	./pkg/orm
 	./pkg/oss
+	./pkg/otel
 	./pkg/redis
 )
