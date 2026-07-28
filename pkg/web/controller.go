@@ -1,4 +1,4 @@
-package flow
+package web
 
 import (
 	"context"
@@ -16,8 +16,6 @@ import (
 type Controller[T any] interface {
 	Action(context.Context, *T) (any, error)
 }
-
-type ControllerFactory[T any] func() Controller[T]
 
 type controllerConfig struct {
 	binding  binding.Binding
@@ -42,11 +40,12 @@ type renderPolicy interface {
 	ShouldRender() bool
 }
 
-// Use adapts an explicitly constructed controller to Gin. The factory is
-// invoked once per request, preserving constructor-injected dependencies.
-func Use[T any](factory ControllerFactory[T], options ...ControllerOption) gin.HandlerFunc {
-	if factory == nil {
-		panic("flow: nil controller factory")
+// Handle adapts a constructed business controller to Gin. Controllers should
+// hold only constructor-injected dependencies; request state arrives through
+// Action parameters.
+func Handle[T any](controller Controller[T], options ...ControllerOption) gin.HandlerFunc {
+	if controller == nil {
+		panic("web: nil controller")
 	}
 	config := controllerConfig{
 		binding:  binding.Form,
@@ -64,13 +63,6 @@ func Use[T any](factory ControllerFactory[T], options ...ControllerOption) gin.H
 			ginCtx.GetHeader(zlog.HeaderRequestID),
 		)
 		ginCtx.Request = ginCtx.Request.WithContext(requestContext)
-
-		controller := factory()
-		if controller == nil {
-			zlog.Error(ginCtx, "controller factory returned nil")
-			config.renderer.Failure(ginCtx, errors.ErrorSystemError)
-			return
-		}
 
 		var request T
 		var err error

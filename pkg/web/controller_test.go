@@ -1,4 +1,4 @@
-package flow
+package web
 
 import (
 	"context"
@@ -16,23 +16,22 @@ type controllerRequest struct {
 	Name string `form:"name" binding:"required"`
 }
 
-type factoryController struct {
+type testController struct {
 	dependency string
 	requestID  *string
 }
 
-func (controller *factoryController) Action(ctx context.Context, request *controllerRequest) (any, error) {
+func (controller *testController) Action(ctx context.Context, request *controllerRequest) (any, error) {
 	*controller.requestID = zlog.GetRequestID(ctx)
 	return gin.H{"value": controller.dependency + ":" + request.Name}, nil
 }
 
-func TestUseConstructsControllerThroughFactory(t *testing.T) {
+func TestHandleUsesInjectedController(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	var actionRequestID string
-	engine.GET("/", Use(func() Controller[controllerRequest] {
-		return &factoryController{dependency: "injected", requestID: &actionRequestID}
-	}))
+	controller := &testController{dependency: "injected", requestID: &actionRequestID}
+	engine.GET("/", Handle[controllerRequest](controller))
 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/?name=alice", nil)
@@ -42,4 +41,10 @@ func TestUseConstructsControllerThroughFactory(t *testing.T) {
 	require.Contains(t, response.Body.String(), "injected:alice")
 	require.NotEmpty(t, actionRequestID)
 	require.Equal(t, response.Header().Get(zlog.HeaderRequestID), actionRequestID)
+}
+
+func TestHandleRejectsNilController(t *testing.T) {
+	require.Panics(t, func() {
+		Handle[controllerRequest](nil)
+	})
 }
