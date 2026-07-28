@@ -31,29 +31,42 @@ const (
 
 var ErrNilContext = errors.New("http: nil context")
 var ErrNilStreamHandler = errors.New("http: nil stream handler")
+var ErrIdempotencyKeyRequired = errors.New("http: idempotency key required for non-idempotent retry")
+
+const HeaderIdempotencyKey = "Idempotency-Key"
+
+type RetryCondition func(response *http.Response, err error) bool
+
+type TransportMiddleware func(next http.RoundTripper) http.RoundTripper
+
+type EndpointSelector interface {
+	Next(context.Context) (string, error)
+}
 
 type ClientConfig struct {
-	Service          string                   `yaml:"service"`          // api服务名
-	Domain           string                   `yaml:"domain"`           // api domain
-	Domains          []string                 `yaml:"domains"`          // api domain
-	Timeout          time.Duration            `yaml:"timeout"`          // 请求超时时间
-	ConnectTimeout   time.Duration            `yaml:"connectTimeout"`   // 连接超时时间
-	MaxReqBodyLen    int                      `yaml:"maxReqBodyLen"`    // 正数时记录有界请求正文；默认和负数不记录
-	MaxRespBodyLen   int                      `yaml:"maxRespBodyLen"`   // 正数时记录有界响应正文；默认和负数不记录
-	TraceEnabled     bool                     `yaml:"traceEnabled"`     // 记录 DNS/连接/TLS/首字节等 trace
-	RetryCount       int                      `yaml:"retryCount"`       // 最大重试次数；0 表示不重试
-	RetryWaitTime    time.Duration            `yaml:"retryWaitTime"`    // 重试等待间隔
-	RetryMaxWaitTime time.Duration            `yaml:"retryMaxWaitTime"` // 最大重试等待
-	Proxy            string                   `yaml:"proxy"`
-	RetryCondition   resty.RetryConditionFunc // 自定义重试条件
+	Service          string         `yaml:"service"`          // api服务名
+	Domain           string         `yaml:"domain"`           // api domain
+	Domains          []string       `yaml:"domains"`          // api domain
+	Timeout          time.Duration  `yaml:"timeout"`          // 单次尝试的超时时间
+	ConnectTimeout   time.Duration  `yaml:"connectTimeout"`   // 连接超时时间
+	MaxReqBodyLen    int            `yaml:"maxReqBodyLen"`    // 正数时记录有界请求正文；默认和负数不记录
+	MaxRespBodyLen   int            `yaml:"maxRespBodyLen"`   // 正数时记录有界响应正文；默认和负数不记录
+	TraceEnabled     bool           `yaml:"traceEnabled"`     // 记录 DNS/连接/TLS/首字节等 trace
+	RetryCount       int            `yaml:"retryCount"`       // 最大重试次数；0 表示不重试
+	RetryWaitTime    time.Duration  `yaml:"retryWaitTime"`    // 重试等待间隔
+	RetryMaxWaitTime time.Duration  `yaml:"retryMaxWaitTime"` // 最大重试等待
+	Proxy            string         `yaml:"proxy"`
+	RetryCondition   RetryCondition // 自定义重试条件
 
-	Transport    http.RoundTripper  `json:"-"` // 可选的自定义 Transport
-	LoadBalancer resty.LoadBalancer `json:"-"`
+	Transport           http.RoundTripper     `json:"-"` // 可选的自定义 Transport
+	TransportMiddleware []TransportMiddleware `json:"-"`
+	EndpointSelector    EndpointSelector      `json:"-"`
 }
 
 type Client struct {
 	config    ClientConfig
 	client    *resty.Client
+	selector  EndpointSelector
 	transport http.RoundTripper
 	closeOnce sync.Once
 	closeErr  error
@@ -63,7 +76,7 @@ func DefaultClientConfig() ClientConfig {
 	return ClientConfig{
 		Timeout:          5 * time.Second,
 		ConnectTimeout:   5 * time.Second,
-		RetryCount:       3,
+		RetryCount:       0,
 		RetryWaitTime:    500 * time.Millisecond,
 		RetryMaxWaitTime: 2 * time.Second,
 	}
@@ -90,23 +103,53 @@ func NewClient(config ClientConfig) (*Client, error) {
 	if transport == nil {
 		transport = defaultTransport(config.ConnectTimeout)
 	}
-	client.SetTransport(transport)
+	wrappedTransport := transport
+	for index := len(config.TransportMiddleware) - 1; index >= 0; index-- {
+		middleware := config.TransportMiddleware[index]
+		if middleware == nil {
+			continue
+		}
+		wrappedTransport = middleware(wrappedTransport)
+		if wrappedTransport == nil {
+			return nil, fmt.Errorf("http: transport middleware %d returned nil", index)
+		}
+	}
+	client.SetTransport(wrappedTransport)
 
 	if config.Proxy != "" {
 		client.SetProxy(config.Proxy)
 	}
-	if len(config.Domains) > 0 {
+	selector := config.EndpointSelector
+	if selector == nil && len(config.Domains) > 0 {
 		loadBalancer, err := resty.NewRoundRobin(config.Domains...)
 		if err != nil {
 			return nil, fmt.Errorf("http client init error: %w", err)
 		}
-		client.SetLoadBalancer(loadBalancer)
+		selector = restyEndpointSelector{loadBalancer: loadBalancer}
 	}
 	if config.RetryCondition != nil {
-		client.AddRetryConditions(config.RetryCondition)
+		client.AddRetryConditions(func(response *resty.Response, err error) bool {
+			if response == nil {
+				return config.RetryCondition(nil, err)
+			}
+			return config.RetryCondition(response.RawResponse, err)
+		})
 	}
 	client.SetLogger(GetHttpLogger().Sugar())
-	return &Client{config: config, client: client, transport: transport}, nil
+	return &Client{
+		config:    config,
+		client:    client,
+		selector:  selector,
+		transport: transport,
+	}, nil
+}
+
+type restyEndpointSelector struct {
+	loadBalancer resty.LoadBalancer
+}
+
+func (selector restyEndpointSelector) Next(ctx context.Context) (string, error) {
+	return selector.loadBalancer.NextWithContext(ctx)
 }
 
 func defaultTransport(connectTimeout time.Duration) *http.Transport {
@@ -125,13 +168,25 @@ func defaultTransport(connectTimeout time.Duration) *http.Transport {
 }
 
 func (c *Client) selectBaseURL(ctx context.Context) (string, error) {
-	if len(c.config.Domains) == 0 {
-		return c.config.Domain, nil
+	if c.selector != nil {
+		return c.selector.Next(ctx)
 	}
-	if c.config.LoadBalancer != nil {
-		return c.config.LoadBalancer.NextWithContext(ctx)
-	}
-	return c.client.LoadBalancer().NextWithContext(ctx)
+	return c.config.Domain, nil
+}
+
+type RetryMode uint8
+
+const (
+	RetryNone RetryMode = iota
+	RetrySafeMethods
+	RetryWithIdempotencyKey
+)
+
+type RetryPolicy struct {
+	Mode        RetryMode
+	MaxRetries  int
+	MinWaitTime time.Duration
+	MaxWaitTime time.Duration
 }
 
 // RequestOptions 是单个请求可选参数
@@ -143,7 +198,8 @@ type RequestOptions struct {
 	QueryParams  map[string]string   // 查询参数
 	Headers      map[string]string   // 自定义请求头
 	Cookies      map[string]string   // 自定义 Cookie (键值对)
-	Timeout      time.Duration       // 单次请求超时时间（若为零则使用客户端配置）
+	Budget       time.Duration       // 包含所有尝试和退避等待的总调用预算
+	Retry        *RetryPolicy        // nil 时继承客户端的安全方法重试配置
 }
 
 type Result struct {
@@ -219,15 +275,15 @@ func (c *Client) prepareRequest(
 	ctx, _ = zlog.EnsureRequestID(ctx)
 	requestContext := ctx
 	cancel := func() {}
-	if opts.Timeout > 0 {
-		requestContext, cancel = context.WithTimeout(ctx, opts.Timeout)
+	if opts.Budget > 0 {
+		requestContext, cancel = context.WithTimeout(ctx, opts.Budget)
 	}
 	req, err := c.buildRequest(ctx, method, opts)
 	if err != nil {
 		cancel()
 		return nil, nil, nil, err
 	}
-	req.WithContext(requestContext)
+	req = req.WithContext(requestContext)
 	return ctx, req, cancel, nil
 }
 
@@ -405,7 +461,46 @@ func (c *Client) buildRequest(ctx context.Context, method string, opts RequestOp
 	if err != nil {
 		return nil, err
 	}
+	if err := applyRetryPolicy(req, opts.Retry); err != nil {
+		return nil, err
+	}
 	return req, nil
+}
+
+func applyRetryPolicy(request *resty.Request, policy *RetryPolicy) error {
+	if policy == nil {
+		return nil
+	}
+	if policy.MaxRetries < 0 {
+		return errors.New("http: retry count cannot be negative")
+	}
+	if policy.MinWaitTime < 0 || policy.MaxWaitTime < 0 {
+		return errors.New("http: retry wait cannot be negative")
+	}
+
+	switch policy.Mode {
+	case RetryNone:
+		request.SetRetryCount(0)
+		request.SetRetryAllowNonIdempotent(false)
+	case RetrySafeMethods:
+		request.SetRetryCount(policy.MaxRetries)
+		request.SetRetryAllowNonIdempotent(false)
+	case RetryWithIdempotencyKey:
+		if strings.TrimSpace(request.Header.Get(HeaderIdempotencyKey)) == "" {
+			return ErrIdempotencyKeyRequired
+		}
+		request.SetRetryCount(policy.MaxRetries)
+		request.SetRetryAllowNonIdempotent(true)
+	default:
+		return fmt.Errorf("http: unsupported retry mode %d", policy.Mode)
+	}
+	if policy.MinWaitTime > 0 {
+		request.SetRetryWaitTime(policy.MinWaitTime)
+	}
+	if policy.MaxWaitTime > 0 {
+		request.SetRetryMaxWaitTime(policy.MaxWaitTime)
+	}
+	return nil
 }
 
 func (c *Client) getReqBodyStr(opts RequestOptions) string {
