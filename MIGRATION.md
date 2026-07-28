@@ -20,7 +20,7 @@
 
 ## env 与错误
 
-- `env` 成为独立 module。
+- `env` 归入统一 Core module，但保持独立 package 和框架无关实现。
 - 删除 `LoadConfByEnv`、Gin mode/Docker 推断、本地 IP 与日志目录 helper。
 - `APP_NAME` 环境变量替代旧的 `XT_APP_NAME`。
 - 请求级语言改为 `env.WithLanguage` / `LanguageFromContext`。
@@ -28,7 +28,7 @@
 
 ## zlog 与 middleware
 
-- `zlog` 成为独立且不依赖 Gin/Viper 的 module。
+- `zlog` 归入统一 Core module，package 本身仍不依赖 Gin/Viper。
 - `InitLog(LogConfig)` 返回 `(*zap.SugaredLogger, error)`；`CloseLogger` 返回 error。
 - `Buffer.Switch string` 改为 `Buffer.Enabled bool`。
 - request ID 只存标准 context；HTTP/Gin 转换由 `middleware.RequestID` 负责。

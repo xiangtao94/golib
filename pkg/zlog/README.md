@@ -1,6 +1,6 @@
 # zlog
 
-`zlog` 是独立 module，只依赖 Zap 与文件 sink，不依赖 Gin、Viper 或根 module。
+`zlog` 是 Core module 内的框架无关 package，只依赖 Zap 与文件 sink，不依赖 Gin 或 Viper。
 
 ## 生命周期
 

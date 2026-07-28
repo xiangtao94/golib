@@ -4,13 +4,11 @@
 
 ## Module
 
-仓库通过 `go.work` 联合开发 9 个 module：
+仓库采用 1 个 Core module + 6 个可选 adapter module，并通过 `go.work` 联合开发：
 
 | Module | Interface |
 |---|---|
-| `github.com/xiangtao94/golib` | HTTP server、Flow、Gin middleware、HTTP client、job、render |
-| `.../pkg/env` | 配置与进程级应用设置 |
-| `.../pkg/zlog` | 与 HTTP 框架无关的 context 日志 |
+| `github.com/xiangtao94/golib` | Core：HTTP server、Flow、env、zlog、middleware、HTTP client、job、render |
 | `.../pkg/elasticsearch` | Elasticsearch adapter |
 | `.../pkg/mcp` | MCP Gin transport |
 | `.../pkg/milvus` | Milvus adapter |
@@ -18,7 +16,31 @@
 | `.../pkg/oss` | MinIO adapter |
 | `.../pkg/redis` | Redis adapter |
 
-业务只依赖实际使用的 module。重型 adapter 不反向依赖根 module，`env` 和 `zlog` 也不依赖 Gin。
+业务默认只依赖 Core，并按需增加 adapter。Core 不依赖任何可选 adapter；adapter 只单向依赖 Core 中稳定的 context 日志与配置 package。`env` 和 `zlog` 虽属于 Core module，但 package 本身不依赖 Gin。
+
+## 业务接入
+
+```bash
+go get github.com/xiangtao94/golib@<core-version>
+
+# 按需安装，不使用就不会进入业务 module graph
+go get github.com/xiangtao94/golib/pkg/orm@<adapter-version>
+go get github.com/xiangtao94/golib/pkg/redis@<adapter-version>
+```
+
+业务代码按 package import：
+
+```go
+import (
+	"github.com/xiangtao94/golib/flow"
+	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/zlog"
+
+	"github.com/xiangtao94/golib/pkg/orm"
+)
+```
+
+仓库内 adapter `go.mod` 的本地 `replace github.com/xiangtao94/golib => ../..` 只用于关闭 `go.work` 后的独立测试。下游业务不会继承依赖 module 的 `replace`。发布 adapter 前，将其 Core 占位版本更新为已发布的 Core 版本。
 
 ## 启动与关闭
 
@@ -85,7 +107,7 @@ engine.POST("/users", flow.Use(func() flow.Controller[CreateUserRequest] {
 测试与源码同 package 放置为 `*_test.go`。只有 fixture 放入 `testdata/`；不建立顶层 `tests/`，避免测试跨 module 导入内部实现。
 
 ```bash
-modules=(. pkg/env pkg/zlog pkg/elasticsearch pkg/mcp pkg/milvus pkg/orm pkg/oss pkg/redis)
+modules=(. pkg/elasticsearch pkg/mcp pkg/milvus pkg/orm pkg/oss pkg/redis)
 for module in "${modules[@]}"; do
 	(cd "$module" && GOWORK=off go test -race ./... && GOWORK=off go vet ./...)
 done

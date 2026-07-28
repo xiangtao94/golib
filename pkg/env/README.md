@@ -1,6 +1,6 @@
 # env
 
-`env` 是独立配置 module，不依赖 Gin，也不根据 Web framework mode 猜测部署环境。
+`env` 是 Core module 内的配置 package，不依赖 Gin，也不根据 Web framework mode 猜测部署环境。
 
 ## 应用设置
 

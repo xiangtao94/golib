@@ -16,8 +16,6 @@ jobs:
       matrix:
         module:
           - .
-          - pkg/env
-          - pkg/zlog
           - pkg/elasticsearch
           - pkg/mcp
           - pkg/milvus

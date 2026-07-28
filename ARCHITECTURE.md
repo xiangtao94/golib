@@ -4,18 +4,16 @@
 
 ```text
 业务 module
-  ├─> golib（HTTP adapter、Flow、middleware、job、render）
-  ├─> env
-  ├─> zlog
-  └─> 按需 adapter（orm / redis / oss / milvus / elasticsearch / mcp）
+  ├─> Core module（Flow / env / zlog / HTTP / middleware / job / render）
+  └─> 按需 adapter module（orm / redis / oss / milvus / elasticsearch / mcp）
+           └─> Core 中的 env / zlog package
 
-adapter ─> zlog
-redis   ─> env + zlog
-zlog    ─> Zap
-env     ─> Viper
+Core ─X─> 可选 adapter
+zlog ─> Zap
+env  ─> Viper
 ```
 
-根 module 负责 Gin adapter。`env`、`zlog` 和重型 adapter 不反向依赖根 module，避免基础能力被整个 Web/存储依赖树绑住。
+根 module 是统一发布的 Core。`env`、`zlog` 作为 Core package 保持框架无关；重型 adapter 使用独立 module 隔离 SDK 依赖，并且只能单向依赖 Core。这样 N 个业务只学习一套 Core interface，同时不会因未使用 Milvus、Elasticsearch 等 adapter 而引入它们。
 
 ## 保留的 interface
 
@@ -57,6 +55,13 @@ interface 只放在使用它的 seam，不为“将来可能替换”预建同�
 - cron/cycle：明确 owner 的后台执行。
 
 当业务出现多个模型 provider 或 tool runtime 时，在业务 consumer 侧定义最小 interface。需要跨 HTTP/queue 的 trace 时，优先新增独立 OpenTelemetry adapter module，避免让 core package 直接依赖 SDK。
+
+## 发布与本地开发
+
+- Core 使用根 module 版本发布，业务直接 `go get github.com/xiangtao94/golib@<version>`。
+- adapter 使用各自 module 版本发布，业务只安装实际使用的 adapter。
+- 仓库内 `go.work` 负责联合开发；adapter 的本地 `replace` 仅用于 `GOWORK=off` 独立验证。
+- 发布 adapter 前，把其 `github.com/xiangtao94/golib v0.0.0` 更新为已发布的 Core 版本。下游不会继承本地 `replace`。
 
 ## 测试位置
 
