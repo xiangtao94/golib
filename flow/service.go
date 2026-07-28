@@ -2,12 +2,14 @@ package flow
 
 import "fmt"
 
-// 业务分层，没有特殊逻辑
+// Deprecated: define business behavior in the consuming package. This marker
+// interface does not provide a framework extension point.
 type IService interface {
 	ILayer
 	ServiceFunc()
 }
 
+// Deprecated: define a concrete business type in the consuming package.
 type Service struct {
 	Layer
 }

@@ -17,6 +17,10 @@ type IController[T any] interface {
 	Action(context.Context, *T) (any, error)
 }
 
+// Controller is the business-facing extension point consumed by Use.
+// IController remains as a compatibility name for existing applications.
+type Controller[T any] = IController[T]
+
 type ControllerFactory[T any] func() IController[T]
 
 type controllerConfig struct {

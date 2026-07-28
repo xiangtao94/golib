@@ -1,6 +1,7 @@
 package flow
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 
@@ -17,6 +18,8 @@ type ApiRes struct {
 	Result    json.RawMessage `json:"result,omitempty"`
 }
 
+// Deprecated: compose Api directly and pass context to its context-aware
+// methods. This interface is kept for source compatibility.
 type IApi interface {
 	ILayer
 	GetEncodeType() string
@@ -41,95 +44,131 @@ func (entity *Api) GetEncodeType() string {
 }
 
 func (entity *Api) ApiGet(path string, requestParam map[string]string) (*ApiRes, error) {
+	return entity.ApiGetContext(entity.GetCtx(), path, requestParam)
+}
+
+func (entity *Api) ApiGetContext(ctx context.Context, path string, requestParam map[string]string) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		QueryParams: requestParam,
 	}
-	return entity.ApiGetWithOpts(path, reqOpts)
+	return entity.ApiGetWithOptsContext(ctx, path, reqOpts)
 }
 
 func (entity *Api) ApiDelete(path string, requestParam interface{}) (*ApiRes, error) {
+	return entity.ApiDeleteContext(entity.GetCtx(), path, requestParam)
+}
+
+func (entity *Api) ApiDeleteContext(ctx context.Context, path string, requestParam interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestParam,
 		Encode:      http.EncodeForm,
 	}
-	return entity.ApiDeleteWithOpts(path, reqOpts)
+	return entity.ApiDeleteWithOptsContext(ctx, path, reqOpts)
 }
 
 func (entity *Api) ApiPut(path string, requestBody interface{}) (*ApiRes, error) {
+	return entity.ApiPutContext(entity.GetCtx(), path, requestBody)
+}
+
+func (entity *Api) ApiPutContext(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      entity.GetEncodeType(),
 	}
-	return entity.ApiPutWithOpts(path, reqOpts)
+	return entity.ApiPutWithOptsContext(ctx, path, reqOpts)
 }
 
 func (entity *Api) ApiPost(path string, requestBody interface{}) (*ApiRes, error) {
+	return entity.ApiPostContext(entity.GetCtx(), path, requestBody)
+}
+
+func (entity *Api) ApiPostContext(ctx context.Context, path string, requestBody interface{}) (*ApiRes, error) {
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
 		Encode:      entity.GetEncodeType(),
 	}
-	return entity.ApiPostWithOpts(path, reqOpts)
+	return entity.ApiPostWithOptsContext(ctx, path, reqOpts)
 }
 
 func (entity *Api) ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+	return entity.ApiGetWithOptsContext(entity.GetCtx(), path, reqOpts)
+}
+
+func (entity *Api) ApiGetWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
-		zlog.Errorf(entity.GetCtx(), "ApiGetWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(ctx, "ApiGetWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	reqOpts.Path = path
-	res, e := entity.Client.Get(entity.GetCtx(), reqOpts)
+	res, e := entity.Client.Get(ctx, reqOpts)
 	if e != nil {
 		return nil, e
 	}
-	return entity.handle(path, res)
+	return entity.handleContext(ctx, path, res)
 }
 
 func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+	return entity.ApiDeleteWithOptsContext(entity.GetCtx(), path, reqOpts)
+}
+
+func (entity *Api) ApiDeleteWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
-		zlog.Errorf(entity.GetCtx(), "ApiDeleteWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(ctx, "ApiDeleteWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	reqOpts.Path = path
-	res, e := entity.Client.Delete(entity.GetCtx(), reqOpts)
+	res, e := entity.Client.Delete(ctx, reqOpts)
 	if e != nil {
 		return nil, e
 	}
-	return entity.handle(path, res)
+	return entity.handleContext(ctx, path, res)
 }
 
 func (entity *Api) ApiPutWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+	return entity.ApiPutWithOptsContext(entity.GetCtx(), path, reqOpts)
+}
+
+func (entity *Api) ApiPutWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
-		zlog.Errorf(entity.GetCtx(), "ApiPutWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(ctx, "ApiPutWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	if reqOpts.Encode == "" {
 		reqOpts.Encode = entity.GetEncodeType()
 	}
 	reqOpts.Path = path
-	res, err := entity.Client.Put(entity.GetCtx(), reqOpts)
+	res, err := entity.Client.Put(ctx, reqOpts)
 	if err != nil {
 		return nil, err
 	}
-	return entity.handle(path, res)
+	return entity.handleContext(ctx, path, res)
 }
 
 func (entity *Api) ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
+	return entity.ApiPostWithOptsContext(entity.GetCtx(), path, reqOpts)
+}
+
+func (entity *Api) ApiPostWithOptsContext(ctx context.Context, path string, reqOpts http.RequestOptions) (*ApiRes, error) {
 	if entity.Client == nil {
-		zlog.Errorf(entity.GetCtx(), "ApiPostWithOpts failed, api client is needed, path:%s", path)
+		zlog.Errorf(ctx, "ApiPostWithOpts failed, api client is needed, path:%s", path)
 		return nil, errors.ErrorSystemError
 	}
 	if reqOpts.Encode == "" {
 		reqOpts.Encode = entity.GetEncodeType()
 	}
 	reqOpts.Path = path
-	res, err := entity.Client.Post(entity.GetCtx(), reqOpts)
+	res, err := entity.Client.Post(ctx, reqOpts)
 	if err != nil {
 		return nil, err
 	}
-	return entity.handle(path, res)
+	return entity.handleContext(ctx, path, res)
 }
 
 func (entity *Api) handle(path string, res *http.Result) (*ApiRes, error) {
+	return entity.handleContext(entity.GetCtx(), path, res)
+}
+
+func (entity *Api) handleContext(ctx context.Context, path string, res *http.Result) (*ApiRes, error) {
 	if res == nil {
 		return nil, errors.ErrorSystemError
 	}
@@ -146,7 +185,7 @@ func (entity *Api) handle(path string, res *http.Result) (*ApiRes, error) {
 				data = data[0:2000]
 			}
 			// 返回数据json unmarshal失败，打印错误日志
-			zlog.Errorf(entity.GetCtx(), "http response json unmarshal failed, path:%s, response:%s, err:%s", path, string(data), e)
+			zlog.Errorf(ctx, "http response json unmarshal failed, path:%s, response:%s, err:%s", path, string(data), e)
 			return nil, e
 		}
 	}

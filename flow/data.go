@@ -2,12 +2,14 @@ package flow
 
 import "fmt"
 
-// 业务分层，没有特殊逻辑
+// Deprecated: define the smallest data interface in the consuming package.
+// This marker interface does not provide a framework extension point.
 type IData interface {
 	ILayer
 	DataFunc()
 }
 
+// Deprecated: define a concrete adapter in the consuming package.
 type Data struct {
 	Layer
 }

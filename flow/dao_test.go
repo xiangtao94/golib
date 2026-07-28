@@ -1,10 +1,12 @@
 package flow
 
 import (
+	"context"
 	"testing"
 
 	"github.com/stretchr/testify/require"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type daoModel struct{}
@@ -38,4 +40,31 @@ func TestCommonDaoReturnsConfigurationError(t *testing.T) {
 	_, err := dao.GetById(1)
 
 	require.ErrorIs(t, err, ErrDatabaseNotConfigured)
+}
+
+func TestCommonDaoContextMethodReturnsConfigurationError(t *testing.T) {
+	dao := CommonDao[daoModel]{Dao: NewDao(nil)}
+
+	_, err := dao.GetByIDContext(context.Background(), 1)
+
+	require.ErrorIs(t, err, ErrDatabaseNotConfigured)
+}
+
+func TestDaoGetDBContextUsesTheCallContext(t *testing.T) {
+	type contextKey struct{}
+	ctx := context.WithValue(context.Background(), contextKey{}, "call")
+	db := &gorm.DB{
+		Config: &gorm.Config{},
+		Statement: &gorm.Statement{
+			Context:  context.Background(),
+			Clauses:  map[string]clause.Clause{},
+			Preloads: map[string][]interface{}{},
+		},
+	}
+	db.Statement.DB = db
+	dao := NewDao(NewDBRegistry(db, nil))
+
+	result := dao.GetDBContext(ctx)
+
+	require.Equal(t, "call", result.Statement.Context.Value(contextKey{}))
 }
