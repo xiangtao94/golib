@@ -7,7 +7,7 @@ toolchain go1.26.5
 require (
 	github.com/minio/minio-go/v7 v7.2.1
 	github.com/stretchr/testify v1.11.1
-	github.com/xiangtao94/golib/pkg/zlog v0.0.0
+	github.com/xiangtao94/golib v0.0.0
 )
 
 require (
@@ -18,6 +18,7 @@ require (
 	github.com/klauspost/compress v1.19.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.3.0 // indirect
 	github.com/klauspost/crc32 v1.3.0 // indirect
+	github.com/kr/pretty v0.3.1 // indirect
 	github.com/minio/crc64nvme v1.1.1 // indirect
 	github.com/minio/md5-simd v1.1.2 // indirect
 	github.com/philhofer/fwd v1.2.0 // indirect
@@ -38,4 +39,4 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
 
-replace github.com/xiangtao94/golib/pkg/zlog => ../zlog
+replace github.com/xiangtao94/golib => ../..

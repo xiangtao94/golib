@@ -8,18 +8,14 @@ require (
 	github.com/gin-contrib/sse v1.1.1
 	github.com/gin-gonic/gin v1.12.0
 	github.com/prometheus/client_golang v1.24.1
+	github.com/spf13/viper v1.21.0
 	github.com/stretchr/testify v1.11.1
-	github.com/xiangtao94/golib/pkg/env v0.0.0
-	github.com/xiangtao94/golib/pkg/zlog v0.0.0
 	go.uber.org/zap v1.28.0
 	golang.org/x/time v0.15.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 	gorm.io/gorm v1.31.2
 	resty.dev/v3 v3.0.0-rc.3
 )
-
-replace github.com/xiangtao94/golib/pkg/env => ./pkg/env
-
-replace github.com/xiangtao94/golib/pkg/zlog => ./pkg/zlog
 
 require (
 	github.com/beorn7/perks v1.0.1 // indirect
@@ -59,7 +55,6 @@ require (
 	github.com/spf13/afero v1.15.0 // indirect
 	github.com/spf13/cast v1.10.0 // indirect
 	github.com/spf13/pflag v1.0.10 // indirect
-	github.com/spf13/viper v1.21.0 // indirect
 	github.com/subosito/gotenv v1.6.0 // indirect
 	github.com/twitchyliquid64/golang-asm v0.15.1 // indirect
 	github.com/ugorji/go/codec v1.3.1 // indirect
@@ -72,6 +67,5 @@ require (
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
-	gopkg.in/natefinch/lumberjack.v2 v2.2.1 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )

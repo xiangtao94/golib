@@ -5,11 +5,9 @@ toolchain go1.26.5
 use (
 	.
 	./pkg/elasticsearch
-	./pkg/env
 	./pkg/mcp
 	./pkg/milvus
 	./pkg/orm
 	./pkg/oss
 	./pkg/redis
-	./pkg/zlog
 )
