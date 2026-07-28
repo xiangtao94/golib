@@ -4,6 +4,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
@@ -20,45 +21,41 @@ const (
 	APP_NAME = "XT_APP_NAME"
 )
 
-var (
-	// 本地ip
-	LocalIP string
-	// 根目录
+var runtimeState = struct {
+	sync.RWMutex
+	localIP  string
 	rootPath string
-	// 是否docker运行
 	isDocker bool
-	// 项目AppName
-	AppName string
-	// 国际化默认语言 zh 、en
-	DefaultLang = I18N_ZH
-)
+	appName  string
+	language string
+}{language: I18N_ZH}
 
 func init() {
-	LocalIP = GetInternalIp()
-	isDocker = false
-	// 运行环境
-	r := os.Getenv(gin.EnvGinMode)
-	if r == gin.ReleaseMode {
-		isDocker = true
-	}
-	AppName = GetEnv(APP_NAME, "XT")
+	runtimeState.localIP = GetInternalIp()
+	runtimeState.isDocker = os.Getenv(gin.EnvGinMode) == gin.ReleaseMode
+	runtimeState.appName = GetEnv(APP_NAME, "XT")
 }
 
 // RootPath 返回应用的根目录
 func GetRootPath() string {
-	if rootPath != "" {
-		return rootPath
-	} else {
-		return DefaultRootPath
+	runtimeState.RLock()
+	defer runtimeState.RUnlock()
+	if runtimeState.rootPath != "" {
+		return runtimeState.rootPath
 	}
+	return DefaultRootPath
 }
 
 func GetLanguage() string {
-	return DefaultLang
+	runtimeState.RLock()
+	defer runtimeState.RUnlock()
+	return runtimeState.language
 }
 
 func SetLanguage(lang string) {
-	DefaultLang = lang
+	runtimeState.Lock()
+	runtimeState.language = lang
+	runtimeState.Unlock()
 }
 
 // GetConfDirPath 返回配置文件目录绝对地址
@@ -73,29 +70,43 @@ func GetLogDirPath() string {
 
 // 判断项目运行平台
 func IsDockerPlatform() bool {
-	return isDocker
+	runtimeState.RLock()
+	defer runtimeState.RUnlock()
+	return runtimeState.isDocker
 }
 
 // 手动指定SetAppName
 func SetAppName(appName string) {
-	AppName = appName
+	runtimeState.Lock()
+	runtimeState.appName = appName
+	runtimeState.Unlock()
 }
 
 func GetAppName() string {
-	return AppName
+	runtimeState.RLock()
+	defer runtimeState.RUnlock()
+	return runtimeState.appName
 }
 
 // SetRootPath 设置应用的根目录
 func SetRootPath(r string) {
-	if !isDocker {
-		rootPath = r
+	runtimeState.Lock()
+	defer runtimeState.Unlock()
+	if !runtimeState.isDocker {
+		runtimeState.rootPath = r
 	}
+}
+
+func GetLocalIP() string {
+	runtimeState.RLock()
+	defer runtimeState.RUnlock()
+	return runtimeState.localIP
 }
 
 func GetInternalIp() string {
 	addr, err := net.InterfaceAddrs()
 	if err != nil {
-		panic(err.Error())
+		return ""
 	}
 	for _, a := range addr {
 		if ipNet, ok := a.(*net.IPNet); ok && !ipNet.IP.IsLoopback() {

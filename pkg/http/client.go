@@ -13,7 +13,6 @@ import (
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 	"resty.dev/v3"
 
@@ -36,8 +35,8 @@ type ClientConf struct {
 	Domains          []string                 `yaml:"domains"`          // api domain
 	Timeout          time.Duration            `yaml:"timeout"`          // 请求超时时间
 	ConnectTimeout   time.Duration            `yaml:"connectTimeout"`   // 连接超时时间
-	MaxReqBodyLen    int                      `yaml:"maxReqBodyLen"`    // request body 最大长度展示，0表示采用默认的10240，-1表示不打印
-	MaxRespBodyLen   int                      `yaml:"maxRespBodyLen"`   // response body 最大长度展示，0表示采用默认的10240，-1表示不打印。指定长度的时候需注意，返回的json可能被截断
+	MaxReqBodyLen    int                      `yaml:"maxReqBodyLen"`    // 正数时记录有界请求正文；默认和负数不记录
+	MaxRespBodyLen   int                      `yaml:"maxRespBodyLen"`   // 正数时记录有界响应正文；默认和负数不记录
 	HttpStat         bool                     `yaml:"httpStat"`         // http 分析，默认关闭
 	RetryTimes       int                      `yaml:"retryTimes"`       // 最大重试次数
 	RetryWaitTime    time.Duration            `yaml:"retryWaitTime"`    // 重试等待间隔
@@ -50,16 +49,17 @@ type ClientConf struct {
 
 	HTTPClient *resty.Client `json:"-"`
 	once       sync.Once
+	initErr    error
 }
 
-func (c *ClientConf) selectBaseURL() (string, error) {
+func (c *ClientConf) selectBaseURL(ctx context.Context) (string, error) {
 	if len(c.Domains) == 0 {
 		return c.Domain, nil
 	}
 	if c.LoadBalancer != nil {
-		return c.LoadBalancer.Next()
+		return c.LoadBalancer.NextWithContext(ctx)
 	}
-	return c.HTTPClient.LoadBalancer().Next()
+	return c.HTTPClient.LoadBalancer().NextWithContext(ctx)
 }
 
 // RequestOptions 是单个请求可选参数
@@ -78,12 +78,12 @@ type Result struct {
 	HttpCode int
 	Response []byte
 	Header   http.Header
-	Ctx      *gin.Context
+	Ctx      context.Context
 }
 
 // truncateString 截断超长字符串，避免日志过长
 func truncateString(s string, maxLen int) string {
-	if maxLen == -1 {
+	if maxLen <= 0 {
 		return "(omitted)"
 	}
 	if len(s) > maxLen {
@@ -94,7 +94,6 @@ func truncateString(s string, maxLen int) string {
 
 // initClient 初始化 resty.Client，仅执行一次
 func (c *ClientConf) initClient() error {
-	var err error
 	c.once.Do(func() {
 		// 设置默认值
 		if c.Timeout == 0 {
@@ -110,10 +109,10 @@ func (c *ClientConf) initClient() error {
 			c.RetryMaxWaitTime = 2 * time.Second // 默认最大重试等待时间
 		}
 		if c.MaxReqBodyLen == 0 {
-			c.MaxReqBodyLen = 10240
+			c.MaxReqBodyLen = -1
 		}
 		if c.MaxRespBodyLen == 0 {
-			c.MaxRespBodyLen = 10240
+			c.MaxRespBodyLen = -1
 		}
 
 		client := resty.New()
@@ -137,9 +136,9 @@ func (c *ClientConf) initClient() error {
 			client.SetProxy(c.Proxy)
 		}
 		if len(c.Domains) > 0 {
-			var rr *resty.RoundRobin
-			rr, err = resty.NewRoundRobin(c.Domains...)
+			rr, err := resty.NewRoundRobin(c.Domains...)
 			if err != nil {
+				c.initErr = err
 				return
 			}
 			client.SetLoadBalancer(rr)
@@ -147,8 +146,8 @@ func (c *ClientConf) initClient() error {
 		client.SetLogger(GetHttpLogger().Sugar())
 		c.HTTPClient = client
 	})
-	if err != nil {
-		return fmt.Errorf("http client init error: %v", err)
+	if c.initErr != nil {
+		return fmt.Errorf("http client init error: %w", c.initErr)
 	}
 	return nil
 }
@@ -158,47 +157,51 @@ func GetHttpLogger() *zap.Logger {
 }
 
 // GET 方法
-func (c *ClientConf) Get(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Get(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodGet, opts)
 }
 
 // GET 方法
-func (c *ClientConf) GetStream(ctx *gin.Context, opts RequestOptions, f func(data []byte) error) (*Result, error) {
+func (c *ClientConf) GetStream(ctx context.Context, opts RequestOptions, f func(data []byte) error) (*Result, error) {
 	return c.doStream(ctx, http.MethodGet, opts, f)
 }
 
 // Head 方法
-func (c *ClientConf) Head(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Head(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodHead, opts)
 }
 
 // Patch 方法
-func (c *ClientConf) Patch(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Patch(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodPatch, opts)
 }
 
 // POST 方法
-func (c *ClientConf) Post(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Post(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodPost, opts)
 }
 
 // POST 方法
-func (c *ClientConf) PostStream(ctx *gin.Context, opts RequestOptions, f func(data []byte) error) (*Result, error) {
+func (c *ClientConf) PostStream(ctx context.Context, opts RequestOptions, f func(data []byte) error) (*Result, error) {
 	return c.doStream(ctx, http.MethodPost, opts, f)
 }
 
 // PUT 方法
-func (c *ClientConf) Put(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Put(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodPut, opts)
 }
 
 // DELETE 方法
-func (c *ClientConf) Delete(ctx *gin.Context, opts RequestOptions) (*Result, error) {
+func (c *ClientConf) Delete(ctx context.Context, opts RequestOptions) (*Result, error) {
 	return c.do(ctx, http.MethodDelete, opts)
 }
 
 // do 执行通用请求方法
-func (c *ClientConf) do(ctx *gin.Context, method string, opts RequestOptions) (res *Result, err error) {
+func (c *ClientConf) do(ctx context.Context, method string, opts RequestOptions) (res *Result, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, _ = zlog.EnsureRequestID(ctx)
 	var timeoutCtx context.Context
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -234,7 +237,7 @@ func (c *ClientConf) do(ctx *gin.Context, method string, opts RequestOptions) (r
 	return res, nil
 }
 
-func (c *ClientConf) logHttpInvoke(ctx *gin.Context, req *resty.Request, res *Result, err error, start time.Time, opts RequestOptions) {
+func (c *ClientConf) logHttpInvoke(ctx context.Context, req *resty.Request, res *Result, err error, start time.Time, opts RequestOptions) {
 	msg := "http invoke"
 	if err != nil {
 		msg = err.Error()
@@ -263,7 +266,11 @@ func (c *ClientConf) logHttpInvoke(ctx *gin.Context, req *resty.Request, res *Re
 	}
 }
 
-func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptions, f func(data []byte) error) (res *Result, err error) {
+func (c *ClientConf) doStream(ctx context.Context, method string, opts RequestOptions, f func(data []byte) error) (res *Result, err error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ctx, _ = zlog.EnsureRequestID(ctx)
 	var timeoutCtx context.Context
 	if opts.Timeout > 0 {
 		var cancel context.CancelFunc
@@ -282,12 +289,15 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 		c.logHttpInvoke(ctx, req, res, err, start, opts)
 	}()
 	// 通过自定义执行方式以获取 response.RawBody()
-	resp, err := req.SetDoNotParseResponse(true).Send()
+	resp, err := req.SetResponseDoNotParse(true).Send()
 	if err != nil {
 		return nil, err
 	}
-	if resp.IsError() {
-		_ = resp.Body.Close()
+	if resp == nil || resp.Body == nil {
+		return nil, errors.New("http stream returned an empty response")
+	}
+	defer resp.Body.Close()
+	if resp.IsStatusFailure() {
 		return nil, fmt.Errorf("http response code %v, error: %s", resp.StatusCode(), resp.String())
 	}
 	scanner := bufio.NewScanner(resp.Body)
@@ -303,7 +313,6 @@ func (c *ClientConf) doStream(ctx *gin.Context, method string, opts RequestOptio
 	if err = scanner.Err(); err != nil {
 		return nil, err
 	}
-	_ = resp.Body.Close()
 	res = &Result{
 		Ctx:      ctx,
 		HttpCode: resp.StatusCode(),
@@ -349,13 +358,16 @@ func (c *ClientConf) doRequestSetBody(req *resty.Request, opts RequestOptions) e
 	return nil
 }
 
-func (c *ClientConf) buildRequest(ctx *gin.Context, method string, opts RequestOptions) (*resty.Request, error) {
+func (c *ClientConf) buildRequest(ctx context.Context, method string, opts RequestOptions) (*resty.Request, error) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	err := c.initClient()
 	if err != nil {
 		return nil, err
 	}
 	// 构造完整 URL
-	urlStr, err := c.selectBaseURL()
+	urlStr, err := c.selectBaseURL(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -371,7 +383,7 @@ func (c *ClientConf) buildRequest(ctx *gin.Context, method string, opts RequestO
 	for k, v := range opts.Headers {
 		req.SetHeader(k, v)
 	}
-	req.Header.Set("Request-Id", zlog.GetRequestID(ctx))
+	req.Header.Set(zlog.HeaderRequestID, zlog.GetRequestID(ctx))
 	// 处理 Cookies
 	for name, val := range opts.Cookies {
 		cookie := &http.Cookie{Name: name, Value: val}

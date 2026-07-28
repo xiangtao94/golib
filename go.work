@@ -1,0 +1,13 @@
+go 1.26.0
+
+toolchain go1.26.5
+
+use (
+	.
+	./pkg/elasticsearch
+	./pkg/mcp
+	./pkg/milvus
+	./pkg/orm
+	./pkg/oss
+	./pkg/redis
+)

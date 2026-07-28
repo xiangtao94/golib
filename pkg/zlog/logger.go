@@ -1,15 +1,15 @@
 package zlog
 
 import (
-	rotatelogs "github.com/lestrrat-go/file-rotatelogs"
+	"os"
+	"path/filepath"
+	"sync"
+	"time"
+
 	"go.uber.org/zap"
 	"go.uber.org/zap/buffer"
 	"go.uber.org/zap/zapcore"
-	"os"
-	"path/filepath"
-	"strings"
-	"sync"
-	"time"
+	"gopkg.in/natefinch/lumberjack.v2"
 )
 
 type (
@@ -152,16 +152,15 @@ func (enc *defaultEncoder) EncodeEntry(ent zapcore.Entry, fields []zapcore.Field
 }
 
 func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
-	logDir := strings.TrimSuffix(logConfig.Path, "/")
-	filenamePattern := filepath.Join(logDir, appendLogFileTail(name, loggerType, true))
-	filename := filepath.Join(logDir, appendLogFileTail(name, loggerType, false))
-	// Info按日期切割日志，每天一个新文件
-	fileWriter, _ := rotatelogs.New(
-		filenamePattern,                           // 生成的日志文件格式
-		rotatelogs.WithLinkName(filename),         // 软链接，指向最新日志
-		rotatelogs.WithMaxAge(14*24*time.Hour),    // 只保留 14 天的日志
-		rotatelogs.WithRotationTime(24*time.Hour), // 每 24 小时切割一次
-	)
+	filename := filepath.Join(filepath.Clean(logConfig.Path), appendLogFileTail(name, loggerType))
+	fileWriter := &lumberjack.Logger{
+		Filename:   filename,
+		MaxSize:    100,
+		MaxBackups: 14,
+		MaxAge:     14,
+		Compress:   true,
+		LocalTime:  true,
+	}
 	if !logConfig.BufferSwitch {
 		return zapcore.AddSync(fileWriter)
 	}
@@ -176,7 +175,7 @@ func getLogFileWriter(name, loggerType string) (ws zapcore.WriteSyncer) {
 }
 
 // genFilename 拼装完整文件名
-func appendLogFileTail(appName, loggerType string, pattern bool) string {
+func appendLogFileTail(appName, loggerType string) string {
 	var tailFixed string
 	switch loggerType {
 	case txtLogNormal:
@@ -187,9 +186,6 @@ func appendLogFileTail(appName, loggerType string, pattern bool) string {
 		tailFixed = ".log.access"
 	default:
 		tailFixed = ".log"
-	}
-	if pattern {
-		return appName + "-%Y-%m-%d" + tailFixed
 	}
 	return appName + tailFixed
 }

@@ -9,6 +9,7 @@ package zlog
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"math/rand"
 	"strings"
@@ -20,32 +21,72 @@ import (
 
 const (
 	ContextKeyRequestID = "request_id"
+	HeaderRequestID     = "X-Request-ID"
 )
 
-func GetRequestID(ctx *gin.Context) string {
+type requestIDContextKey struct{}
+
+// WithRequestID returns a context that carries requestID without coupling
+// application code to an HTTP framework.
+func WithRequestID(ctx context.Context, requestID string) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, requestIDContextKey{}, requestID)
+}
+
+// EnsureRequestID returns a context carrying a stable request ID. Gin contexts
+// are populated in place; immutable standard contexts are wrapped.
+func EnsureRequestID(ctx context.Context) (context.Context, string) {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if requestID, ok := ctx.Value(requestIDContextKey{}).(string); ok && requestID != "" {
+		return ctx, requestID
+	}
+	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
+		return ginCtx, GetRequestID(ginCtx)
+	}
+	requestID := genRequestID()
+	return WithRequestID(ctx, requestID), requestID
+}
+
+func GetRequestID(ctx context.Context) string {
 	if ctx == nil {
 		return genRequestID()
 	}
 
-	// 从ctx中获取
-	if r := ctx.GetString(ContextKeyRequestID); r != "" {
-		return r
-	}
-	// 请求头是上层传下来的
-	var requestID string
-	if ctx.Request != nil && ctx.Request.Header != nil {
-		requestID = ctx.Request.Header.Get(ContextKeyRequestID)
-	}
-	if len(requestID) > 0 {
-		if strings.Contains(requestID, ":") {
-			tt := strings.Split(requestID, ":")
-			requestID = fmt.Sprintf("%s:%016x", tt[0], uint64(generator.Int63()))
-		}
+	if requestID, ok := ctx.Value(requestIDContextKey{}).(string); ok && requestID != "" {
 		return requestID
 	}
-	requestID = genRequestID()
-	ctx.Set(ContextKeyRequestID, requestID)
-	return requestID
+
+	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
+		if requestID := ginCtx.GetString(ContextKeyRequestID); requestID != "" {
+			return requestID
+		}
+
+		var requestID string
+		if ginCtx.Request != nil && ginCtx.Request.Header != nil {
+			requestID = ginCtx.Request.Header.Get(HeaderRequestID)
+			if requestID == "" {
+				requestID = ginCtx.Request.Header.Get(ContextKeyRequestID)
+			}
+		}
+		if requestID != "" {
+			if strings.Contains(requestID, ":") {
+				parts := strings.Split(requestID, ":")
+				requestID = fmt.Sprintf("%s:%016x", parts[0], uint64(generator.Int63()))
+			}
+			ginCtx.Set(ContextKeyRequestID, requestID)
+			return requestID
+		}
+
+		requestID = genRequestID()
+		ginCtx.Set(ContextKeyRequestID, requestID)
+		return requestID
+	}
+
+	return genRequestID()
 }
 
 var generator = newRand(time.Now().UnixNano())

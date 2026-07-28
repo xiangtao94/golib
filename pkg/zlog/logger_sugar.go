@@ -8,6 +8,8 @@
 package zlog
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
@@ -31,78 +33,82 @@ func GetGlobalLogger() *zap.SugaredLogger {
 	return globalLogger
 }
 
-func sugaredLogger(ctx *gin.Context) *zap.SugaredLogger {
+func sugaredLogger(ctx context.Context) *zap.SugaredLogger {
 	if ctx == nil {
 		return NewLoggerWithSkip(1).Sugar()
 	}
 
-	if t, exist := ctx.Get(sugaredLoggerAddr); exist {
-		if s, ok := t.(*zap.SugaredLogger); ok {
-			return s
+	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
+		if cached, exists := ginCtx.Get(sugaredLoggerAddr); exists {
+			if logger, valid := cached.(*zap.SugaredLogger); valid {
+				return logger
+			}
 		}
+		logger := LoggerWithContext(NewLoggerWithSkip(1), ginCtx).Sugar()
+		ginCtx.Set(sugaredLoggerAddr, logger)
+		return logger
 	}
-	s := LoggerWithContext(NewLoggerWithSkip(1), ctx)
-	ctx.Set(sugaredLoggerAddr, s)
-	return s.Sugar()
+
+	return LoggerWithContext(NewLoggerWithSkip(1), ctx).Sugar()
 }
 
-func Debugf(ctx *gin.Context, format string, args ...interface{}) {
+func Debugf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Debugf(format, args...)
 }
 
-func Info(ctx *gin.Context, args ...interface{}) {
+func Info(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Info(args...)
 }
 
-func Infof(ctx *gin.Context, format string, args ...interface{}) {
+func Infof(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Infof(format, args...)
 }
 
-func Warn(ctx *gin.Context, args ...interface{}) {
+func Warn(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Warn(args...)
 }
 
-func Warnf(ctx *gin.Context, format string, args ...interface{}) {
+func Warnf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Warnf(format, args...)
 }
 
-func Error(ctx *gin.Context, args ...interface{}) {
+func Error(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Error(args...)
 }
 
-func Errorf(ctx *gin.Context, format string, args ...interface{}) {
+func Errorf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Errorf(format, args...)
 }
 
-func Panic(ctx *gin.Context, args ...interface{}) {
+func Panic(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
 	sugaredLogger(ctx).Panic(args...)
 }
 
-func Panicf(ctx *gin.Context, format string, args ...interface{}) {
+func Panicf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}

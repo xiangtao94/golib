@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	driver "github.com/go-sql-driver/mysql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"gorm.io/driver/mysql"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 	"gorm.io/gorm/logger"
 	ormUtil "gorm.io/gorm/utils"
 
@@ -24,10 +25,32 @@ type CrudModel struct {
 	DeletedAt gorm.DeletedAt `json:"-" gorm:"index;comment:删除时间"`
 }
 
+type SortDirection string
+
+const (
+	SortAscending  SortDirection = "asc"
+	SortDescending SortDirection = "desc"
+)
+
 type NormalPage struct {
-	No      int    // 当前第几页
-	Size    int    // 每页大小
-	OrderBy string `json:"orderBy"` // 排序规则
+	No            int           `json:"page"`          // 当前第几页
+	Size          int           `json:"pageSize"`      // 每页大小
+	SortBy        string        `json:"sortBy"`        // 对外暴露的逻辑字段名
+	SortDirection SortDirection `json:"sortDirection"` // asc 或 desc
+}
+
+func (page *NormalPage) orderClause(allowedFields map[string]string) clause.OrderByColumn {
+	columnName := "id"
+	if page != nil {
+		if mapped, ok := allowedFields[page.SortBy]; ok && mapped != "" {
+			columnName = mapped
+		}
+	}
+
+	return clause.OrderByColumn{
+		Column: clause.Column{Name: columnName},
+		Desc:   page != nil && page.SortDirection == SortDescending,
+	}
 }
 
 type Option struct {
@@ -35,17 +58,19 @@ type Option struct {
 	IsNeedPage bool `json:"isNeedPage"`
 }
 
-var MysqlPromCollector prometheus.Collector
-
-// 分页示例
-func NormalPaginate(page *NormalPage) func(db *gorm.DB) *gorm.DB {
+// NormalPaginate returns a safe pagination scope. allowedFields maps
+// public sort names to trusted database column names.
+func NormalPaginate(page *NormalPage, allowedFields map[string]string) func(db *gorm.DB) *gorm.DB {
 	return func(db *gorm.DB) *gorm.DB {
 		pageNo := 1
-		if page.No > 0 {
+		if page != nil && page.No > 0 {
 			pageNo = page.No
 		}
 
-		pageSize := page.Size
+		pageSize := 0
+		if page != nil {
+			pageSize = page.Size
+		}
 		switch {
 		case pageSize > 100:
 			pageSize = 100
@@ -54,11 +79,7 @@ func NormalPaginate(page *NormalPage) func(db *gorm.DB) *gorm.DB {
 		}
 
 		offset := (pageNo - 1) * pageSize
-		orderBy := "id asc"
-		if len(page.OrderBy) > 0 {
-			orderBy = page.OrderBy
-		}
-		return db.Order(orderBy).Offset(offset).Limit(pageSize)
+		return db.Order(page.orderClause(allowedFields)).Offset(offset).Limit(pageSize)
 	}
 }
 
@@ -75,6 +96,10 @@ type MysqlConf struct {
 	ConnTimeOut     time.Duration `yaml:"connTimeOut"`
 	WriteTimeOut    time.Duration `yaml:"writeTimeOut"`
 	ReadTimeOut     time.Duration `yaml:"readTimeOut"`
+	TLSConfigName   string        `yaml:"tlsConfigName"`
+	// AllowInsecureTransport must be explicitly enabled for plaintext,
+	// preferred, or certificate-skipping connections.
+	AllowInsecureTransport bool `yaml:"allowInsecureTransport"`
 }
 
 func (conf *MysqlConf) checkConf() {
@@ -104,17 +129,9 @@ func (conf *MysqlConf) checkConf() {
 
 func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	conf.checkConf()
-	dsn := fmt.Sprintf("%s:%s@tcp(%s)/%s?timeout=%s&readTimeout=%s&writeTimeout=%s&parseTime=True&loc=Asia%%2FShanghai",
-		conf.User,
-		conf.Password,
-		conf.Addr,
-		conf.DataBase,
-		conf.ConnTimeOut,
-		conf.ReadTimeOut,
-		conf.WriteTimeOut,
-	)
-	if conf.Charset != "" {
-		dsn += "&charset=" + conf.Charset
+	dsn, err := buildMySQLDSN(conf)
+	if err != nil {
+		return nil, err
 	}
 	l := newLogger()
 	_ = driver.SetLogger(l)
@@ -141,8 +158,51 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	sqlDB.SetConnMaxLifetime(conf.ConnMaxLifeTime)
 	// 设置最大空闲连接时间
 	sqlDB.SetConnMaxIdleTime(conf.ConnMaxIdlTime)
-	MysqlPromCollector = collectors.NewDBStatsCollector(sqlDB, conf.Addr)
 	return client, nil
+}
+
+func buildMySQLDSN(conf MysqlConf) (string, error) {
+	tlsMode := strings.TrimSpace(conf.TLSConfigName)
+	insecureMode := tlsMode == "" ||
+		strings.EqualFold(tlsMode, "false") ||
+		strings.EqualFold(tlsMode, "preferred") ||
+		strings.EqualFold(tlsMode, "skip-verify")
+	if insecureMode && !conf.AllowInsecureTransport {
+		return "", errors.New("mysql: TLS verification is required; configure tlsConfigName or explicitly allow insecure transport")
+	}
+
+	location, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return "", fmt.Errorf("load mysql location: %w", err)
+	}
+	config := driver.Config{
+		User:         conf.User,
+		Passwd:       conf.Password,
+		Net:          "tcp",
+		Addr:         conf.Addr,
+		DBName:       conf.DataBase,
+		Timeout:      conf.ConnTimeOut,
+		ReadTimeout:  conf.ReadTimeOut,
+		WriteTimeout: conf.WriteTimeOut,
+		ParseTime:    true,
+		Loc:          location,
+		TLSConfig:    tlsMode,
+	}
+	if conf.Charset != "" {
+		config.Params = map[string]string{"charset": conf.Charset}
+	}
+	return config.FormatDSN(), nil
+}
+
+func NewMySQLPrometheusCollector(client *gorm.DB, name string) (prometheus.Collector, error) {
+	if client == nil {
+		return nil, errors.New("mysql client is nil")
+	}
+	sqlDB, err := client.DB()
+	if err != nil {
+		return nil, err
+	}
+	return collectors.NewDBStatsCollector(sqlDB, name), nil
 }
 
 type ormLogger struct {
@@ -202,9 +262,9 @@ func (l *ormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 }
 
 func (l *ormLogger) AppendCustomField(ctx context.Context) []zlog.Field {
-	var requestID string
-	if c, ok := ctx.(*gin.Context); ok && c != nil {
-		requestID = zlog.GetRequestID(c)
+	requestID := ""
+	if ctx != nil {
+		requestID = zlog.GetRequestID(ctx)
 	}
 	fields := []zlog.Field{
 		zlog.String("requestId", requestID),
@@ -214,12 +274,15 @@ func (l *ormLogger) AppendCustomField(ctx context.Context) []zlog.Field {
 
 // TransactionManager 事务管理器
 type TransactionManager struct {
-	ctx *gin.Context
+	ctx context.Context
 	db  *gorm.DB
 }
 
 // NewTransactionManager 创建事务管理器
-func NewTransactionManager(ctx *gin.Context, client *gorm.DB) *TransactionManager {
+func NewTransactionManager(ctx context.Context, client *gorm.DB) *TransactionManager {
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	return &TransactionManager{
 		ctx: ctx,
 		db:  client.WithContext(ctx),

@@ -1,6 +1,7 @@
 package zlog
 
 import (
+	"context"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -49,11 +50,15 @@ func SetLogFlag(ctx *gin.Context) {
 	ctx.Set(ContextKeyNoLog, false)
 }
 
-func noLog(ctx *gin.Context) bool {
+func noLog(ctx context.Context) bool {
 	if ctx == nil {
 		return false
 	}
-	flag, ok := ctx.Get(ContextKeyNoLog)
+	ginCtx, ok := ctx.(*gin.Context)
+	if !ok || ginCtx == nil {
+		return false
+	}
+	flag, ok := ginCtx.Get(ContextKeyNoLog)
 	if ok && flag == true {
 		return true
 	}
@@ -69,7 +74,7 @@ func GetRequestCost(start, end time.Time) float64 {
 }
 
 // 返回带上下文信息的 zap.Logger
-func LoggerWithContext(baseLogger *zap.Logger, ctx *gin.Context) *zap.Logger {
+func LoggerWithContext(baseLogger *zap.Logger, ctx context.Context) *zap.Logger {
 	if ctx == nil || baseLogger == nil {
 		return baseLogger
 	}

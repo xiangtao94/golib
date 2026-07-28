@@ -1,11 +1,9 @@
 package cron
 
-import (
-	"github.com/gin-gonic/gin"
-)
+import "context"
 
-func InitCrontab(g *gin.Engine) (c *Cron) {
-	c = New(g)
-	c.Start()
-	return c
+func InitCrontab(ctx context.Context) *Cron {
+	scheduler := New()
+	scheduler.Start(ctx)
+	return scheduler
 }

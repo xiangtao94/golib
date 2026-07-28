@@ -15,32 +15,18 @@ func TimeoutMiddleware(timeout time.Duration) gin.HandlerFunc {
 		defer cancel()
 
 		c.Request = c.Request.WithContext(ctx)
+		c.Next()
 
-		done := make(chan struct{})
-		panicChan := make(chan interface{}, 1)
-
-		go func() {
-			defer func() {
-				if p := recover(); p != nil {
-					panicChan <- p
-				}
-			}()
-
-			c.Next()
-			close(done)
-		}()
-
-		select {
-		case p := <-panicChan:
-			panic(p)
-		case <-done:
-			return
-		case <-ctx.Done():
+		// Gin's context and response writer must stay on the request goroutine.
+		// Handlers are responsible for observing ctx.Done and returning. If a
+		// cooperative handler exits without writing, provide a consistent 504.
+		if ctx.Err() == context.DeadlineExceeded &&
+			!c.Writer.Written() &&
+			c.Writer.Status() == http.StatusOK {
 			c.AbortWithStatusJSON(http.StatusGatewayTimeout, gin.H{
 				"code":    http.StatusGatewayTimeout,
 				"message": "请求超时",
 			})
-			return
 		}
 	}
 }

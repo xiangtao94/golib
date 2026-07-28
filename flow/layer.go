@@ -1,65 +1,43 @@
 package flow
 
-import (
-	"github.com/gin-gonic/gin"
-	"reflect"
-)
+import "context"
 
 type ILayer interface {
-	SetCtx(*gin.Context)
-	GetCtx() *gin.Context
+	SetCtx(context.Context)
+	GetCtx() context.Context
 	OnCreate()
-	SetEntity(entity ILayer)
 }
 
 type Layer struct {
-	ctx    *gin.Context
-	entity ILayer
+	ctx context.Context
 }
 
-func (entity *Layer) SetCtx(ctx *gin.Context) {
-	entity.ctx = ctx
-}
-
-func (entity *Layer) GetCtx() *gin.Context {
-	return entity.ctx
-}
-
-func (entity *Layer) SetEntity(flow ILayer) {
-	entity.entity = flow
-}
-
-func (entity *Layer) GetEntity() ILayer {
-	return entity.entity
-}
-
-func (entity *Layer) OnCreate() {
-
-}
-
-// 复制对象并带上新的上下文
-func CopyWithCtx[T ILayer](src T) T {
-	var v T
-	v = NewObject(src)     // 深拷贝 src
-	v.SetCtx(src.GetCtx()) // 设置新的上下文
-	v.SetEntity(v)         // 确保实体指向自己
-	v.OnCreate()           // 调用创建方法
-	return v
-}
-
-// 泛型版本的 NewObject，创建 src 的深拷贝
-func NewObject[T ILayer](src T) T {
-	typ := reflect.TypeOf(src)
-	if typ.Kind() == reflect.Ptr {
-		typ = typ.Elem() // 获取指针指向的实际类型
+func (layer *Layer) SetCtx(ctx context.Context) {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	newInstance := reflect.New(typ).Interface().(T) // 创建新实例
-	return newInstance
+	layer.ctx = ctx
 }
 
-func Create[T ILayer](ctx *gin.Context, newLayer T) T {
-	newLayer.SetCtx(ctx)
-	newLayer.SetEntity(newLayer)
-	newLayer.OnCreate()
-	return newLayer
+func (layer *Layer) GetCtx() context.Context {
+	if layer.ctx == nil {
+		return context.Background()
+	}
+	return layer.ctx
+}
+
+func (layer *Layer) OnCreate() {}
+
+// Factory makes dependencies explicit and avoids constructing zero-value
+// service objects through reflection.
+type Factory[T ILayer] func() T
+
+func Create[T ILayer](ctx context.Context, factory Factory[T]) T {
+	if factory == nil {
+		panic("flow: nil layer factory")
+	}
+	layer := factory()
+	layer.SetCtx(ctx)
+	layer.OnCreate()
+	return layer
 }

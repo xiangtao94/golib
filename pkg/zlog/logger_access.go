@@ -45,7 +45,7 @@ func zapAccessLogger(ctx *gin.Context) *zap.Logger {
 	l := LoggerWithContext(m, ctx)
 	l.With(
 		String("uri", GetRequestUri(ctx)),
-		String("localIp", env.LocalIP),
+		String("localIp", env.GetLocalIP()),
 	)
 	ctx.Set(zapAccessLoggerAddr, l)
 	return l

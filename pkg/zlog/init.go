@@ -198,7 +198,7 @@ func InitLog(conf ...LogConfig) *zap.SugaredLogger {
 		logConf = DefaultLogConfig()
 	}
 
-	logConfig.ModuleName = env.AppName
+	logConfig.ModuleName = env.GetAppName()
 	// 全局日志级别
 	logConf.SetLogLevel()
 	// 日志缓冲区设置

@@ -2,75 +2,135 @@ package middleware
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"mime"
-	"slices"
+	"net/http"
+	"net/textproto"
 	"strings"
 	"time"
-	"unsafe"
 
 	"github.com/gin-gonic/gin"
-	"github.com/gin-gonic/gin/binding"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 const (
-	_defaultPrintRequestLen  = 10240
-	_defaultPrintResponseLen = 10240
+	_defaultPrintRequestLen  = -1
+	_defaultPrintResponseLen = -1
 )
+
+// BodySanitizer converts a bounded body prefix into a safe log value. Body
+// capture is disabled unless both a positive limit and a sanitizer are set.
+type BodySanitizer func(contentType string, body []byte) string
+
+type boundedCapture struct {
+	body      bytes.Buffer
+	limit     int
+	total     int
+	truncated bool
+}
+
+func newBoundedCapture(limit int) *boundedCapture {
+	if limit < 0 {
+		limit = 0
+	}
+	return &boundedCapture{limit: limit}
+}
+
+func (c *boundedCapture) Write(data []byte) (int, error) {
+	originalLen := len(data)
+	c.total += originalLen
+
+	remaining := c.limit - c.body.Len()
+	if remaining > 0 {
+		if len(data) > remaining {
+			_, _ = c.body.Write(data[:remaining])
+		} else {
+			_, _ = c.body.Write(data)
+		}
+	}
+	c.truncated = c.total > c.limit
+	return originalLen, nil
+}
+
+func (c *boundedCapture) Bytes() []byte {
+	if c == nil {
+		return nil
+	}
+	return c.body.Bytes()
+}
+
+func (c *boundedCapture) String() string {
+	if c == nil {
+		return ""
+	}
+	return c.body.String()
+}
+
+func (c *boundedCapture) Truncated() bool {
+	return c != nil && c.truncated
+}
+
+type teeReadCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func captureRequestBody(body io.ReadCloser, limit int) (io.ReadCloser, *boundedCapture) {
+	capture := newBoundedCapture(limit)
+	return &teeReadCloser{
+		Reader: io.TeeReader(body, capture),
+		Closer: body,
+	}, capture
+}
 
 type customRespWriter struct {
 	gin.ResponseWriter
-	body *bytes.Buffer
+	body *boundedCapture
 }
 
-func (w customRespWriter) WriteString(s string) (int, error) {
+func (w *customRespWriter) WriteString(value string) (int, error) {
 	if w.body != nil {
-		w.body.WriteString(s)
+		_, _ = w.body.Write([]byte(value))
 	}
-	return w.ResponseWriter.WriteString(s)
+	return w.ResponseWriter.WriteString(value)
 }
 
-func (w customRespWriter) Write(b []byte) (int, error) {
+func (w *customRespWriter) Write(data []byte) (int, error) {
 	if w.body != nil {
-		w.body.Write(b)
+		_, _ = w.body.Write(data)
 	}
-	return w.ResponseWriter.Write(b)
+	return w.ResponseWriter.Write(data)
 }
 
-// access日志打印
 type AccessLoggerConfig struct {
 	SkipPaths    []string `yaml:"skipPaths"`
 	PrintHeaders []string `yaml:"printHeaders"`
-	PrintCookie  bool     `yaml:"printCookie"`
-	// request body 最大长度展示，0表示采用默认的10240，-1表示不打印
-	MaxReqBodyLen int `yaml:"maxReqBodyLen"`
-	// response body 最大长度展示，0表示采用默认的10240，-1表示不打印。指定长度的时候需注意，返回的json可能被截断
-	MaxRespBodyLen int `yaml:"maxRespBodyLen"`
-	// 自定义Skip功能
-	Skip func(ctx *gin.Context) bool
+
+	// A body is captured only when the corresponding limit is positive and a
+	// sanitizer is provided. Capture is always limited to this prefix length.
+	MaxReqBodyLen         int           `yaml:"maxReqBodyLen"`
+	MaxRespBodyLen        int           `yaml:"maxRespBodyLen"`
+	RequestBodySanitizer  BodySanitizer `yaml:"-"`
+	ResponseBodySanitizer BodySanitizer `yaml:"-"`
+
+	// Skip is evaluated before the handler so skipped requests allocate no
+	// capture buffers and never inspect request or response bodies.
+	Skip func(ctx *gin.Context) bool `yaml:"-"`
 }
 
-// DefaultAccessLoggerConfig 返回默认的Access日志配置
 func DefaultAccessLoggerConfig() AccessLoggerConfig {
 	return AccessLoggerConfig{
 		SkipPaths:      []string{},
 		PrintHeaders:   []string{},
-		PrintCookie:    false,
 		MaxReqBodyLen:  _defaultPrintRequestLen,
 		MaxRespBodyLen: _defaultPrintResponseLen,
-		Skip:           nil,
 	}
 }
 
-// mergeWithDefaultAccessLog 将用户配置与默认配置合并
 func mergeWithDefaultAccessLog(userConf AccessLoggerConfig) AccessLoggerConfig {
 	defaultConf := DefaultAccessLoggerConfig()
-
-	// 如果用户没有设置，使用默认值
 	if userConf.SkipPaths == nil {
 		userConf.SkipPaths = defaultConf.SkipPaths
 	}
@@ -83,162 +143,146 @@ func mergeWithDefaultAccessLog(userConf AccessLoggerConfig) AccessLoggerConfig {
 	if userConf.MaxRespBodyLen == 0 {
 		userConf.MaxRespBodyLen = defaultConf.MaxRespBodyLen
 	}
-	if userConf.Skip == nil {
-		userConf.Skip = defaultConf.Skip
-	}
-
 	return userConf
 }
 
 func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
-	notLogged := conf.SkipPaths
-	var skip map[string]struct{}
-	if length := len(notLogged); length > 0 {
-		skip = make(map[string]struct{}, length)
-		for _, path := range notLogged {
-			skip[path] = struct{}{}
-		}
-	}
-
-	maxReqBodyLen := conf.MaxReqBodyLen
-	if maxReqBodyLen == 0 {
-		maxReqBodyLen = _defaultPrintRequestLen
-	}
-
-	maxRespBodyLen := conf.MaxRespBodyLen
-	if maxRespBodyLen == 0 {
-		maxRespBodyLen = _defaultPrintResponseLen
+	skipPaths := make(map[string]struct{}, len(conf.SkipPaths))
+	for _, path := range conf.SkipPaths {
+		skipPaths[path] = struct{}{}
 	}
 
 	return func(c *gin.Context) {
-		// Start timer
 		start := time.Now()
 		path := c.Request.URL.Path
-
-		// body writer
-		blw := &customRespWriter{body: bytes.NewBufferString(""), ResponseWriter: c.Writer}
-		c.Writer = blw
-
-		// 请求参数，涉及到回写，要在处理业务逻辑之前
-		reqParam := getReqBody(c, maxReqBodyLen)
-
 		c.Set(zlog.ContextKeyUri, path)
 		_ = zlog.GetRequestID(c)
 
-		// Process request
+		if _, ok := skipPaths[path]; ok {
+			c.Next()
+			return
+		}
+		if conf.Skip != nil && conf.Skip(c) {
+			c.Next()
+			return
+		}
+
+		var requestCapture *boundedCapture
+		var requestLog string
+		if conf.MaxReqBodyLen > 0 && conf.RequestBodySanitizer != nil {
+			if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodDelete {
+				query := []byte(c.Request.URL.Query().Encode())
+				capture := newBoundedCapture(conf.MaxReqBodyLen)
+				_, _ = capture.Write(query)
+				requestLog = sanitizeCapturedBody(
+					conf.RequestBodySanitizer,
+					"application/x-www-form-urlencoded",
+					capture,
+				)
+			} else if c.Request.Body != nil {
+				c.Request.Body, requestCapture = captureRequestBody(c.Request.Body, conf.MaxReqBodyLen)
+			}
+		}
+
+		var responseCapture *boundedCapture
+		if conf.MaxRespBodyLen > 0 && conf.ResponseBodySanitizer != nil {
+			responseCapture = newBoundedCapture(conf.MaxRespBodyLen)
+			c.Writer = &customRespWriter{
+				ResponseWriter: c.Writer,
+				body:           responseCapture,
+			}
+		}
+
 		c.Next()
 
-		// Log only when path is not being skipped
-		if _, ok := skip[path]; ok {
-			return
+		if requestCapture != nil {
+			requestLog = sanitizeCapturedBody(
+				conf.RequestBodySanitizer,
+				c.ContentType(),
+				requestCapture,
+			)
 		}
 
-		if conf.Skip != nil && conf.Skip(c) {
-			return
-		}
-
-		// 固定notice
-		commonFields := []zlog.Field{
+		fields := []zlog.Field{
 			zlog.String("method", c.Request.Method),
 			zlog.String("uri", path),
 			zlog.Int("status", c.Writer.Status()),
 			zlog.String("clientIp", c.ClientIP()),
-			zlog.String("requestParam", reqParam),
+			zlog.Int("bodySize", c.Writer.Size()),
 		}
-		if len(conf.PrintHeaders) > 0 {
-			commonFields = append(commonFields, zlog.String("requestHeader", getHeader(c, conf.PrintHeaders)))
+		if requestLog != "" {
+			fields = append(fields, zlog.String("requestBody", requestLog))
 		}
-		if conf.PrintCookie {
-			commonFields = append(commonFields, zlog.String("cookie", getCookie(c)))
+		if headers := getHeader(c, conf.PrintHeaders); headers != "" {
+			fields = append(fields, zlog.String("requestHeader", headers))
 		}
-		contentType := c.Writer.Header().Get("Content-Type")
-		mediaType, _, err := mime.ParseMediaType(contentType)
-		if err != nil {
-			mediaType = ""
+		if responseLog := sanitizedResponseBody(c, conf, responseCapture); responseLog != "" {
+			fields = append(fields, zlog.String("responseBody", responseLog))
 		}
-		var response any
-		if blw.body != nil && maxRespBodyLen != -1 {
-			if strings.Contains(mediaType, "application/json") {
-				response = json.RawMessage{}
-				_ = json.Unmarshal(blw.body.Bytes(), &response)
-			} else if strings.Contains(mediaType, "text/event-stream") {
-				response = blw.body.String()
-			}
-		}
-		commonFields = append(commonFields, zlog.Any("responseBody", response), zlog.Int("bodySize", c.Writer.Size()))
-		commonFields = append(commonFields, AppendCostTime(start, time.Now())...)
-		// 新的notice添加方式
-		customerFields := zlog.GetCustomerFields(c)
-		commonFields = append(commonFields, customerFields...)
-		zlog.AccessInfo(c, commonFields...)
+
+		fields = append(fields, AppendCostTime(start, time.Now())...)
+		fields = append(fields, zlog.GetCustomerFields(c)...)
+		zlog.AccessInfo(c, fields...)
 	}
 }
 
-// 请求参数
-func getReqBody(c *gin.Context, maxReqBodyLen int) (reqBody string) {
-	// 不打印参数
-	if maxReqBodyLen == -1 {
-		return reqBody
+func sanitizeCapturedBody(sanitizer BodySanitizer, contentType string, capture *boundedCapture) string {
+	if sanitizer == nil || capture == nil {
+		return ""
 	}
-	if c.Request.Method == "GET" || c.Request.Method == "DELETE" {
-		allParams := c.Request.URL.Query()
-		reqBody = allParams.Encode()
-		return reqBody
+	value := sanitizer(contentType, capture.Bytes())
+	if value != "" && capture.Truncated() {
+		value += "...[truncated]"
 	}
-	// body中的参数
-	if c.Request.Body != nil && c.ContentType() == binding.MIMEMultipartPOSTForm {
-		requestBody, err := c.GetRawData()
-		if err != nil {
-			zlog.WarnLogger(c, "get http request body error: "+err.Error())
-		}
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-
-		if _, err := c.MultipartForm(); err != nil {
-			zlog.WarnLogger(c, "parse http request form body error: "+err.Error())
-		}
-		reqBody = c.Request.PostForm.Encode()
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-	} else if c.Request.Body != nil {
-		requestBody, err := c.GetRawData()
-		if err != nil {
-			zlog.WarnLogger(c, "get http request body error: "+err.Error())
-		}
-		reqBody = *(*string)(unsafe.Pointer(&requestBody))
-		c.Request.Body = io.NopCloser(bytes.NewBuffer(requestBody))
-	}
-	// 截断参数
-	if len(reqBody) > maxReqBodyLen {
-		reqBody = reqBody[:maxReqBodyLen]
-	}
-	return reqBody
+	return value
 }
 
-func getCookie(ctx *gin.Context) string {
-	cStr := ""
-	for _, c := range ctx.Request.Cookies() {
-		cStr += fmt.Sprintf("%s=%s&", c.Name, c.Value)
+func sanitizedResponseBody(
+	c *gin.Context,
+	conf AccessLoggerConfig,
+	capture *boundedCapture,
+) string {
+	if capture == nil || conf.ResponseBodySanitizer == nil {
+		return ""
 	}
-	return strings.TrimRight(cStr, "&")
+	contentType := c.Writer.Header().Get("Content-Type")
+	mediaType, _, err := mime.ParseMediaType(contentType)
+	if err == nil && mediaType == "text/event-stream" {
+		return ""
+	}
+	return sanitizeCapturedBody(conf.ResponseBodySanitizer, mediaType, capture)
+}
+
+var sensitiveRequestHeaders = map[string]struct{}{
+	"Authorization":       {},
+	"Cookie":              {},
+	"Proxy-Authorization": {},
+	"X-Api-Key":           {},
 }
 
 func getHeader(ctx *gin.Context, headers []string) string {
-	cStr := ""
-	for k, v := range ctx.Request.Header {
-		if slices.Contains(headers, k) {
-			cStr += fmt.Sprintf("%s=%s&", k, v)
+	values := make([]string, 0, len(headers))
+	seen := make(map[string]struct{}, len(headers))
+	for _, rawName := range headers {
+		name := textproto.CanonicalMIMEHeaderKey(rawName)
+		if _, sensitive := sensitiveRequestHeaders[name]; sensitive {
+			continue
+		}
+		if _, duplicate := seen[name]; duplicate {
+			continue
+		}
+		seen[name] = struct{}{}
+		if headerValues := ctx.Request.Header.Values(name); len(headerValues) > 0 {
+			values = append(values, fmt.Sprintf("%s=%v", name, headerValues))
 		}
 	}
-	return strings.TrimRight(cStr, "&")
+	return strings.Join(values, "&")
 }
 
 func RegistryAccessLog(engine *gin.Engine, conf ...AccessLoggerConfig) {
-	var logConf AccessLoggerConfig
+	logConf := DefaultAccessLoggerConfig()
 	if len(conf) > 0 {
-		// 使用传入的配置，并与默认配置合并
 		logConf = mergeWithDefaultAccessLog(conf[0])
-	} else {
-		// 使用默认配置
-		logConf = DefaultAccessLoggerConfig()
 	}
 	engine.Use(AccessLog(logConf))
 }
@@ -247,6 +291,6 @@ func AppendCostTime(begin, end time.Time) []zlog.Field {
 	return []zlog.Field{
 		zlog.String("startTime", zlog.GetFormatRequestTime(begin)),
 		zlog.String("endTime", zlog.GetFormatRequestTime(end)),
-		zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(begin, end), "ms")),
+		zlog.String("cost", fmt.Sprintf("%vms", zlog.GetRequestCost(begin, end))),
 	}
 }

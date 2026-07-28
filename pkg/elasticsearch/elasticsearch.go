@@ -1,6 +1,7 @@
 package elasticsearch
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
@@ -11,18 +12,12 @@ import (
 	"os"
 	"time"
 
-	"github.com/elastic/go-elasticsearch/v8"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/core/search"
-	"github.com/elastic/go-elasticsearch/v8/typedapi/types"
-	"github.com/gin-gonic/gin"
+	"github.com/elastic/go-elasticsearch/v9"
+	"github.com/elastic/go-elasticsearch/v9/typedapi/core/search"
+	"github.com/elastic/go-elasticsearch/v9/typedapi/types"
 	"github.com/google/uuid"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
-)
-
-const (
-	_defaultPrintRequestLen  = 512
-	_defaultPrintResponseLen = 10240
 )
 
 const (
@@ -48,15 +43,16 @@ type ElasticsearchClient struct {
 }
 
 func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
-	endpointUrl, err := url.Parse(conf.Addr)
+	endpointURL, err := url.Parse(conf.Addr)
 	if err != nil {
 		return nil, err
 	}
-	cfg := elasticsearch.Config{
-		Addresses: []string{endpointUrl.String()},
-		Username:  conf.Username,
-		Password:  conf.Password,
-		Logger:    newLogger(),
+	options := []elasticsearch.Option{
+		elasticsearch.WithAddresses(endpointURL.String()),
+		elasticsearch.WithLogger(newLogger(conf.MaxReqBodyLen, conf.MaxRespBodyLen)),
+	}
+	if conf.Username != "" || conf.Password != "" {
+		options = append(options, elasticsearch.WithBasicAuth(conf.Username, conf.Password))
 	}
 	if len(conf.CaCertPath) > 0 {
 		f, err := os.Open(conf.CaCertPath)
@@ -68,9 +64,9 @@ func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 		if err != nil {
 			return nil, err
 		}
-		cfg.CACert = data
+		options = append(options, elasticsearch.WithCACert(data))
 	}
-	typeClient, err := elasticsearch.NewTypedClient(cfg)
+	typeClient, err := elasticsearch.NewTyped(options...)
 	if err != nil {
 		return nil, err
 	}
@@ -82,8 +78,8 @@ func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 }
 
 // CheckIndex 判断索引是否存在
-func (ec *ElasticsearchClient) CheckIndex(ctx *gin.Context, indexName string) (bool, error) {
-	ec.appendContext(ctx)
+func (ec *ElasticsearchClient) CheckIndex(ctx context.Context, indexName string) (bool, error) {
+	ctx = ec.appendContext(ctx)
 	res, err := ec.Client.Indices.Exists(indexName).Do(ctx)
 	if err != nil {
 		return false, err
@@ -92,8 +88,8 @@ func (ec *ElasticsearchClient) CheckIndex(ctx *gin.Context, indexName string) (b
 }
 
 // CreateIndex 根据提供的 mapping 创建索引
-func (ec *ElasticsearchClient) CreateIndex(ctx *gin.Context, indexName string, mapping *types.TypeMapping, setting *types.IndexSettings) error {
-	ec.appendContext(ctx)
+func (ec *ElasticsearchClient) CreateIndex(ctx context.Context, indexName string, mapping *types.TypeMapping, setting *types.IndexSettings) error {
+	ctx = ec.appendContext(ctx)
 	res, err := ec.Client.Indices.Create(indexName).Mappings(mapping).Settings(setting).Do(ctx)
 	if err != nil {
 		return err
@@ -105,9 +101,9 @@ func (ec *ElasticsearchClient) CreateIndex(ctx *gin.Context, indexName string, m
 }
 
 // 删除索引
-func (ec *ElasticsearchClient) DeleteIndex(ctx *gin.Context, indexName string) error {
+func (ec *ElasticsearchClient) DeleteIndex(ctx context.Context, indexName string) error {
 
-	ec.appendContext(ctx)
+	ctx = ec.appendContext(ctx)
 	res, err := ec.Client.Indices.Delete(indexName).IgnoreUnavailable(true).Do(ctx)
 	if err != nil {
 		return err
@@ -119,8 +115,8 @@ func (ec *ElasticsearchClient) DeleteIndex(ctx *gin.Context, indexName string) e
 }
 
 // BulkInsert 批量插入数据，批量限制为 3000 条
-func (ec *ElasticsearchClient) DocumentInsert(ctx *gin.Context, indexName string, docs []any) (err error) {
-	ec.appendContext(ctx)
+func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName string, docs []any) (err error) {
+	ctx = ec.appendContext(ctx)
 	bulk := ec.Client.Bulk().Index(indexName)
 	for _, doc := range docs {
 		// 获取当前时间戳（秒级）
@@ -148,8 +144,8 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx *gin.Context, indexName string
 }
 
 // BulkDelete 批量删除文档
-func (ec *ElasticsearchClient) DocumentDelete(ctx *gin.Context, indexName string, query *types.Query) error {
-	ec.appendContext(ctx)
+func (ec *ElasticsearchClient) DocumentDelete(ctx context.Context, indexName string, query *types.Query) error {
+	ctx = ec.appendContext(ctx)
 	_, err := ec.Client.DeleteByQuery(indexName).Query(query).Do(ctx)
 	if err != nil {
 		return err
@@ -158,8 +154,8 @@ func (ec *ElasticsearchClient) DocumentDelete(ctx *gin.Context, indexName string
 }
 
 // Search 混合查询
-func (ec *ElasticsearchClient) Search(ctx *gin.Context, indexName string, query *search.Request) (*search.Response, error) {
-	ec.appendContext(ctx)
+func (ec *ElasticsearchClient) Search(ctx context.Context, indexName string, query *search.Request) (*search.Response, error) {
+	ctx = ec.appendContext(ctx)
 	res, err := ec.Client.Search().Index(indexName).Request(query).Do(ctx)
 	if err != nil {
 		return nil, err
@@ -171,30 +167,33 @@ func (ec *ElasticsearchClient) Search(ctx *gin.Context, indexName string, query 
 }
 
 type elasticLogger struct {
-	logger *zlog.Logger
+	logger              *zlog.Logger
+	requestBodyEnabled  bool
+	responseBodyEnabled bool
 }
 
 func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Response, err error, start time.Time, duration time.Duration) error {
-	request.Context()
+	if request == nil {
+		return nil
+	}
+
 	fields := []zlog.Field{}
 
 	// 只在有值时添加字段
-	fields = append(fields, zlog.String("path", request.URL.Path))
 	fields = append(fields, zlog.String("method", request.Method))
 
-	// query 参数只在不为空时添加
-	if request.URL.RawQuery != "" {
-		fields = append(fields, zlog.String("query", request.URL.RawQuery))
+	if request.URL != nil {
+		fields = append(fields, zlog.String("path", request.URL.Path))
+
 	}
 
 	var reqBody, respBody []byte
-	if request.Body != nil {
-		reqBody, _ = io.ReadAll(request.Body)
-		defer request.Body.Close()
+	limits := getLogLimits(request.Context())
+	if request.Body != nil && limits.request > 0 {
+		reqBody, request.Body = captureBodyPrefix(request.Body, limits.request)
 	}
-	if response.Body != nil {
-		respBody, _ = io.ReadAll(response.Body)
-		defer response.Body.Close()
+	if response != nil && response.Body != nil && limits.response > 0 {
+		respBody, response.Body = captureBodyPrefix(response.Body, limits.response)
 	}
 
 	requestData, respData := formatLogMsg(request.Context(), reqBody, respBody)
@@ -204,7 +203,9 @@ func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Respo
 		fields = append(fields, zlog.String("requestParam", string(requestData)))
 	}
 
-	fields = append(fields, zlog.Int("responseStatus", response.StatusCode))
+	if response != nil {
+		fields = append(fields, zlog.Int("responseStatus", response.StatusCode))
+	}
 
 	// response 只在有内容时添加
 	if len(respData) > 0 {
@@ -214,53 +215,43 @@ func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Respo
 	// 添加时间相关字段
 	fields = append(fields, zlog.String("cost", fmt.Sprintf("%d%s", duration.Milliseconds(), "ms")))
 
-	ctx := covertGinContext(request.Context())
-
 	msg := "success"
 	if err != nil {
 		msg = err.Error()
-		zlog.ErrorLogger(ctx, msg, fields...)
+		zlog.ErrorLogger(request.Context(), msg, fields...)
 		return nil
 	}
-	zlog.InfoLogger(ctx, msg, fields...)
+	zlog.InfoLogger(request.Context(), msg, fields...)
 	return nil
 }
 
 func (e *elasticLogger) RequestBodyEnabled() bool {
-	return true
+	return e.requestBodyEnabled
 }
 
 func (e *elasticLogger) ResponseBodyEnabled() bool {
-	return true
+	return e.responseBodyEnabled
 }
 
-func newLogger() *elasticLogger {
+func newLogger(requestLimit, responseLimit int) *elasticLogger {
 	return &elasticLogger{
-		logger: zlog.NewLoggerWithSkip(2),
+		logger:              zlog.NewLoggerWithSkip(2),
+		requestBodyEnabled:  requestLimit > 0,
+		responseBodyEnabled: responseLimit > 0,
 	}
 }
 
-func covertGinContext(ctx context.Context) *gin.Context {
-	if c, ok := ctx.(*gin.Context); ok && c != nil {
-		return c
-	}
-	return nil
+type logLimitContextKey struct{}
+
+type logLimits struct {
+	request  int
+	response int
 }
 
-func formatLogMsg(context context.Context, requestParam, responseData []byte) (req, resp []byte) {
-	ctx := covertGinContext(context)
-	if ctx == nil {
-		return requestParam, responseData
-	}
-	maxReqBodyLen := ctx.GetInt(ES_LOG_MAX_REQ_LEN)
-	if maxReqBodyLen == 0 {
-		maxReqBodyLen = _defaultPrintRequestLen
-	}
-
-	maxRespBodyLen := ctx.GetInt(ES_LOG_MAX_RESP_LEN)
-	if maxRespBodyLen == 0 {
-		maxRespBodyLen = _defaultPrintResponseLen
-	}
+func formatLogMsg(ctx context.Context, requestParam, responseData []byte) (req, resp []byte) {
+	limits := getLogLimits(ctx)
+	maxReqBodyLen := limits.request
+	maxRespBodyLen := limits.response
 
 	if maxReqBodyLen != -1 {
 		req = requestParam
@@ -278,7 +269,44 @@ func formatLogMsg(context context.Context, requestParam, responseData []byte) (r
 	return req, resp
 }
 
-func (ec *ElasticsearchClient) appendContext(ctx *gin.Context) {
-	ctx.Set(ES_LOG_MAX_REQ_LEN, ec.MaxReqBodyLen)
-	ctx.Set(ES_LOG_MAX_RESP_LEN, ec.MaxRespBodyLen)
+func getLogLimits(ctx context.Context) logLimits {
+	if ctx == nil {
+		return logLimits{request: -1, response: -1}
+	}
+	limits, ok := ctx.Value(logLimitContextKey{}).(logLimits)
+	if !ok {
+		return logLimits{request: -1, response: -1}
+	}
+	return limits
+}
+
+func captureBodyPrefix(body io.ReadCloser, limit int) ([]byte, io.ReadCloser) {
+	prefix, _ := io.ReadAll(io.LimitReader(body, int64(limit)))
+	restored := &readCloser{
+		Reader: io.MultiReader(bytes.NewReader(prefix), body),
+		Closer: body,
+	}
+	return prefix, restored
+}
+
+type readCloser struct {
+	io.Reader
+	io.Closer
+}
+
+func (ec *ElasticsearchClient) appendContext(ctx context.Context) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, logLimitContextKey{}, logLimits{
+		request:  normalizeLogLimit(ec.MaxReqBodyLen),
+		response: normalizeLogLimit(ec.MaxRespBodyLen),
+	})
+}
+
+func normalizeLogLimit(limit int) int {
+	if limit <= 0 {
+		return -1
+	}
+	return limit
 }

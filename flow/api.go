@@ -3,6 +3,7 @@ package flow
 import (
 	"encoding/json"
 	"fmt"
+
 	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/http"
 	"github.com/xiangtao94/golib/pkg/zlog"
@@ -55,19 +56,17 @@ func (entity *Api) ApiDelete(path string, requestParam interface{}) (*ApiRes, er
 }
 
 func (entity *Api) ApiPut(path string, requestBody interface{}) (*ApiRes, error) {
-	api2 := entity.GetEntity().(IApi)
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
-		Encode:      api2.GetEncodeType(),
+		Encode:      entity.GetEncodeType(),
 	}
 	return entity.ApiPutWithOpts(path, reqOpts)
 }
 
 func (entity *Api) ApiPost(path string, requestBody interface{}) (*ApiRes, error) {
-	api2 := entity.GetEntity().(IApi)
 	reqOpts := http.RequestOptions{
 		RequestBody: requestBody,
-		Encode:      api2.GetEncodeType(),
+		Encode:      entity.GetEncodeType(),
 	}
 	return entity.ApiPostWithOpts(path, reqOpts)
 }
@@ -82,7 +81,7 @@ func (entity *Api) ApiGetWithOpts(path string, reqOpts http.RequestOptions) (*Ap
 	if e != nil {
 		return nil, e
 	}
-	return entity.handel(path, res)
+	return entity.handle(path, res)
 }
 
 func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
@@ -95,7 +94,7 @@ func (entity *Api) ApiDeleteWithOpts(path string, reqOpts http.RequestOptions) (
 	if e != nil {
 		return nil, e
 	}
-	return entity.handel(path, res)
+	return entity.handle(path, res)
 }
 
 func (entity *Api) ApiPutWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
@@ -111,7 +110,7 @@ func (entity *Api) ApiPutWithOpts(path string, reqOpts http.RequestOptions) (*Ap
 	if err != nil {
 		return nil, err
 	}
-	return entity.handel(path, res)
+	return entity.handle(path, res)
 }
 
 func (entity *Api) ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*ApiRes, error) {
@@ -127,11 +126,14 @@ func (entity *Api) ApiPostWithOpts(path string, reqOpts http.RequestOptions) (*A
 	if err != nil {
 		return nil, err
 	}
-	return entity.handel(path, res)
+	return entity.handle(path, res)
 }
 
-func (entity *Api) handel(path string, res *http.Result) (*ApiRes, error) {
-	if res.HttpCode > 200 {
+func (entity *Api) handle(path string, res *http.Result) (*ApiRes, error) {
+	if res == nil {
+		return nil, errors.ErrorSystemError
+	}
+	if res.HttpCode < 200 || res.HttpCode >= 300 {
 		return nil, fmt.Errorf("api response status code: %d, message: %s", res.HttpCode, string(res.Response))
 	}
 	apiRes := &ApiRes{}
@@ -152,10 +154,16 @@ func (entity *Api) handel(path string, res *http.Result) (*ApiRes, error) {
 }
 
 func (entity *Api) DecodeApiResponse(outPut interface{}, data *ApiRes, err error) error {
-	if data.Code != 200 {
+	if err != nil {
+		return err
+	}
+	if data == nil {
+		return errors.ErrorSystemError
+	}
+	if data.Code != 0 && data.Code != 200 {
 		return errors.NewError(data.Code, map[string]string{"zh": data.Message, "en": data.Message})
 	}
-	if len(data.Data) > 0 {
+	if outPut != nil && len(data.Data) > 0 {
 		// 解析数据
 		if err = json.Unmarshal(data.Data, outPut); err != nil {
 			zlog.Errorf(entity.GetCtx(), "api error, api response unmarshal, data:%s, err:%+v", data.Data, err.Error())

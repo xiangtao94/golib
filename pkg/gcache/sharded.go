@@ -9,6 +9,7 @@ import (
 	"math/big"
 	insecurerand "math/rand"
 	"os"
+	"sync"
 	"time"
 )
 
@@ -31,10 +32,11 @@ const (
 // See cache_test.go for a few benchmarks.
 
 type shardedCache struct {
-	seed    uint32
-	m       uint32
-	cs      []*cache
-	janitor *shardedJanitor
+	seed      uint32
+	m         uint32
+	cs        []*cache
+	janitor   *shardedJanitor
+	janitorMu sync.Mutex
 }
 
 // djb2 with better shuffling. 5x faster than FNV with the hash.Hash overhead.
@@ -268,7 +270,9 @@ func (sc *shardedCache) Flush() {
 
 func (sc *shardedCache) SaveFile(fname string) error {
 	for index, v := range sc.cs {
-		v.saveFile(fmt.Sprintf("%s_%d", fname, index))
+		if err := v.saveFile(fmt.Sprintf("%s_%d", fname, index)); err != nil {
+			return fmt.Errorf("save cache shard %d: %w", index, err)
+		}
 	}
 	return nil
 }
@@ -302,13 +306,15 @@ func (sc *shardedCache) Load(r io.Reader) error {
 
 type shardedJanitor struct {
 	Interval time.Duration
-	stop     chan bool
+	stop     chan struct{}
+	done     chan struct{}
+	stopOnce sync.Once
 }
 
 func (j *shardedJanitor) Run(sc *shardedCache) {
-	j.stop = make(chan bool)
 	ticker := time.NewTicker(j.Interval)
 	defer ticker.Stop()
+	defer close(j.done)
 
 	for {
 		select {
@@ -321,18 +327,36 @@ func (j *shardedJanitor) Run(sc *shardedCache) {
 }
 
 func stopShardedJanitor(sc *BucketCache) {
-	sc.janitor.stop <- true
+	if sc == nil || sc.shardedCache == nil {
+		return
+	}
+	sc.janitorMu.Lock()
+	janitor := sc.janitor
+	sc.janitor = nil
+	sc.janitorMu.Unlock()
+	if janitor == nil {
+		return
+	}
+	janitor.stopOnce.Do(func() { close(janitor.stop) })
+	<-janitor.done
 }
 
 func runShardedJanitor(sc *shardedCache, ci time.Duration) {
 	j := &shardedJanitor{
 		Interval: ci,
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
 	}
+	sc.janitorMu.Lock()
 	sc.janitor = j
+	sc.janitorMu.Unlock()
 	go j.Run(sc)
 }
 
 func newShardedCache(n int, de time.Duration) *shardedCache {
+	if n <= 0 {
+		n = 1
+	}
 	max := big.NewInt(0).SetUint64(uint64(math.MaxUint32))
 	rnd, err := rand.Int(rand.Reader, max)
 	var seed uint32

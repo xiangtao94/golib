@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"path/filepath"
 	"sync"
 	"time"
 )
@@ -977,16 +978,25 @@ func (c *cache) save(w io.Writer) (err error) {
 // NOTE: This method is deprecated in favor of c.Items() and NewFrom() (see the
 // documentation for NewFrom().)
 func (c *cache) saveFile(fname string) error {
-	fp, err := os.Create(fname)
+	tempFile, err := os.CreateTemp(filepath.Dir(fname), "."+filepath.Base(fname)+".tmp-*")
 	if err != nil {
 		return err
 	}
-	err = c.save(fp)
-	if err != nil {
-		fp.Close()
+	tempName := tempFile.Name()
+	defer os.Remove(tempName)
+
+	if err = c.save(tempFile); err != nil {
+		_ = tempFile.Close()
 		return err
 	}
-	return fp.Close()
+	if err = tempFile.Sync(); err != nil {
+		_ = tempFile.Close()
+		return err
+	}
+	if err = tempFile.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tempName, fname)
 }
 
 // Copies all unexpired items in the cache into a new map and returns it.

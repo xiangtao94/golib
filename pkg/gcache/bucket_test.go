@@ -1,6 +1,7 @@
 package gcache
 
 import (
+	"path/filepath"
 	"runtime"
 	"strconv"
 	"sync"
@@ -1255,7 +1256,7 @@ func testFillAndSerialize(t *testing.T, tc *BucketCache) {
 		},
 	}, DefaultExpiration)
 
-	fp := "./testFillAndSerialize.gcache"
+	fp := filepath.Join(t.TempDir(), "testFillAndSerialize.gcache")
 	err := tc.SaveFile(fp)
 	if err != nil {
 		t.Fatal("Couldn't save cache to fp:", err)
@@ -1356,7 +1357,7 @@ func TestFileSerialization(t *testing.T) {
 	tc.Add("a", "a", DefaultExpiration)
 	tc.Add("b", "b", DefaultExpiration)
 
-	fname := "./TestFileSerialization.gcache"
+	fname := filepath.Join(t.TempDir(), "TestFileSerialization.gcache")
 	tc.SaveFile(fname)
 	oc := NewBucketCache(5*time.Minute, 10*time.Minute, 10)
 	oc.Add("a", "aa", 0) // this should not be overwritten
@@ -1666,8 +1667,8 @@ func TestGetWithExpiration(t *testing.T) {
 	} else if a2 := x.(int); a2+2 != 3 {
 		t.Error("a2 (which should be 1) plus 2 does not equal 3; value:", a2)
 	}
-	if !expiration.IsZero() {
-		t.Error("expiration for a is not a zeroed time")
+	if expiration.IsZero() {
+		t.Error("expiration for a is zero despite using the cache default expiration")
 	}
 
 	x, expiration, found = tc.GetWithExpiration("b")
@@ -1679,8 +1680,8 @@ func TestGetWithExpiration(t *testing.T) {
 	} else if b2 := x.(string); b2+"B" != "bB" {
 		t.Error("b2 (which should be b) plus B does not equal bB; value:", b2)
 	}
-	if !expiration.IsZero() {
-		t.Error("expiration for b is not a zeroed time")
+	if expiration.IsZero() {
+		t.Error("expiration for b is zero despite using the cache default expiration")
 	}
 
 	x, expiration, found = tc.GetWithExpiration("c")
@@ -1692,8 +1693,8 @@ func TestGetWithExpiration(t *testing.T) {
 	} else if c2 := x.(float64); c2+1.2 != 4.7 {
 		t.Error("c2 (which should be 3.5) plus 1.2 does not equal 4.7; value:", c2)
 	}
-	if !expiration.IsZero() {
-		t.Error("expiration for c is not a zeroed time")
+	if expiration.IsZero() {
+		t.Error("expiration for c is zero despite using the cache default expiration")
 	}
 
 	x, expiration, found = tc.GetWithExpiration("d")

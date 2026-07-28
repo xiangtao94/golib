@@ -8,28 +8,28 @@
 package oss
 
 import (
+	"context"
+	"crypto/tls"
 	"fmt"
 	"io"
+	"net/http"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
-	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 type MinioConf struct {
-	AK       string `yaml:"ak"`
-	SK       string `yaml:"sk"`
-	Endpoint string `yaml:"endpoint"`
-	UseSSL   bool   `yaml:"useSSL"` // 是否使用SSL
-	Region   string `yaml:"region"` // 区域
-	// ExternalURL 外部URL，用于生成文件URL
-	ExternalURL string `yaml:"externalURL"`
+	AK                     string      `yaml:"ak"`
+	SK                     string      `yaml:"sk"`
+	Endpoint               string      `yaml:"endpoint"`
+	Region                 string      `yaml:"region"` // 区域
+	TLSConfig              *tls.Config `yaml:"-"`
+	AllowInsecureTransport bool        `yaml:"allowInsecureTransport"`
 }
 
 // MinioClient MinIO客户端封装
@@ -55,33 +55,18 @@ type DownloadInfo struct {
 }
 
 // NewMClientByAK 通过AK/SK创建MinIO客户端
-func NewMClientByAK(endpoint string, accessKey, secretKey string) (*minio.Client, error) {
-	endpointUrl, err := url.Parse(endpoint)
-	if err != nil {
-		return nil, errors.ErrorSystemError
-	}
-	minioClient, err := minio.New(endpointUrl.Host, &minio.Options{
-		Creds:  credentials.NewStaticV4(accessKey, secretKey, ""),
-		Secure: false,
+func NewMClientByAK(endpoint string, accessKey, secretKey string, allowInsecureTransport bool) (*minio.Client, error) {
+	return newMinioClient(MinioConf{
+		AK:                     accessKey,
+		SK:                     secretKey,
+		Endpoint:               endpoint,
+		AllowInsecureTransport: allowInsecureTransport,
 	})
-	if err != nil {
-		return nil, err
-	}
-	return minioClient, nil
 }
 
 // NewMinioClient 创建MinIO客户端封装
 func NewMinioClient(config MinioConf) (*MinioClient, error) {
-	endpointUrl, err := url.Parse(config.Endpoint)
-	if err != nil {
-		return nil, fmt.Errorf("invalid endpoint: %w", err)
-	}
-
-	minioClient, err := minio.New(endpointUrl.Host, &minio.Options{
-		Creds:  credentials.NewStaticV4(config.AK, config.SK, ""),
-		Secure: config.UseSSL,
-		Region: config.Region,
-	})
+	minioClient, err := newMinioClient(config)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create minio client: %w", err)
 	}
@@ -92,8 +77,38 @@ func NewMinioClient(config MinioConf) (*MinioClient, error) {
 	}, nil
 }
 
+func newMinioClient(config MinioConf) (*minio.Client, error) {
+	endpointURL, err := url.Parse(config.Endpoint)
+	if err != nil {
+		return nil, fmt.Errorf("invalid endpoint: %w", err)
+	}
+	if endpointURL.Host == "" || (endpointURL.Scheme != "https" && endpointURL.Scheme != "http") {
+		return nil, fmt.Errorf("invalid endpoint: an explicit http or https URL is required")
+	}
+	secure := endpointURL.Scheme == "https"
+	if !secure && !config.AllowInsecureTransport {
+		return nil, fmt.Errorf("minio: HTTPS is required; explicitly allow insecure transport for HTTP")
+	}
+
+	options := &minio.Options{
+		Creds:  credentials.NewStaticV4(config.AK, config.SK, ""),
+		Secure: secure,
+		Region: config.Region,
+	}
+	if config.TLSConfig != nil {
+		tlsConfig := config.TLSConfig.Clone()
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+		transport := http.DefaultTransport.(*http.Transport).Clone()
+		transport.TLSClientConfig = tlsConfig
+		options.Transport = transport
+	}
+	return minio.New(endpointURL.Host, options)
+}
+
 // CreateBucket 创建存储桶
-func (mc *MinioClient) CreateBucket(ctx *gin.Context, bucketName string, location string) error {
+func (mc *MinioClient) CreateBucket(ctx context.Context, bucketName string, location string) error {
 	start := time.Now()
 
 	exists, err := mc.client.BucketExists(ctx, bucketName)
@@ -122,7 +137,7 @@ func (mc *MinioClient) CreateBucket(ctx *gin.Context, bucketName string, locatio
 }
 
 // UploadFile 上传文件
-func (mc *MinioClient) UploadFile(ctx *gin.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts *UploadOptions) (minio.UploadInfo, error) {
+func (mc *MinioClient) UploadFile(ctx context.Context, bucketName, objectName string, reader io.Reader, objectSize int64, opts *UploadOptions) (minio.UploadInfo, error) {
 	start := time.Now()
 
 	if opts == nil {
@@ -152,7 +167,7 @@ func (mc *MinioClient) UploadFile(ctx *gin.Context, bucketName, objectName strin
 }
 
 // UploadFileFromPath 从本地路径上传文件
-func (mc *MinioClient) UploadFileFromPath(ctx *gin.Context, bucketName, objectName, filePath string, opts *UploadOptions) (minio.UploadInfo, error) {
+func (mc *MinioClient) UploadFileFromPath(ctx context.Context, bucketName, objectName, filePath string, opts *UploadOptions) (minio.UploadInfo, error) {
 	start := time.Now()
 
 	if opts == nil {
@@ -182,7 +197,7 @@ func (mc *MinioClient) UploadFileFromPath(ctx *gin.Context, bucketName, objectNa
 }
 
 // DownloadFile 下载文件
-func (mc *MinioClient) DownloadFile(ctx *gin.Context, bucketName, objectName string) (io.ReadCloser, *DownloadInfo, error) {
+func (mc *MinioClient) DownloadFile(ctx context.Context, bucketName, objectName string) (io.ReadCloser, *DownloadInfo, error) {
 	start := time.Now()
 
 	// 获取对象信息
@@ -214,7 +229,7 @@ func (mc *MinioClient) DownloadFile(ctx *gin.Context, bucketName, objectName str
 }
 
 // DownloadFileToPath 下载文件到本地路径
-func (mc *MinioClient) DownloadFileToPath(ctx *gin.Context, bucketName, objectName, filePath string) error {
+func (mc *MinioClient) DownloadFileToPath(ctx context.Context, bucketName, objectName, filePath string) error {
 	start := time.Now()
 
 	err := mc.client.FGetObject(ctx, bucketName, objectName, filePath, minio.GetObjectOptions{})
@@ -230,7 +245,7 @@ func (mc *MinioClient) DownloadFileToPath(ctx *gin.Context, bucketName, objectNa
 }
 
 // GetPresignedURL 获取预签名URL
-func (mc *MinioClient) GetPresignedURL(ctx *gin.Context, bucketName, objectName string, expiry time.Duration, method string) (string, error) {
+func (mc *MinioClient) GetPresignedURL(ctx context.Context, bucketName, objectName string, expiry time.Duration, method string) (string, error) {
 	start := time.Now()
 
 	if expiry <= 0 {
@@ -261,17 +276,17 @@ func (mc *MinioClient) GetPresignedURL(ctx *gin.Context, bucketName, objectName 
 }
 
 // GetDownloadURL 获取下载URL（GET方法的预签名URL）
-func (mc *MinioClient) GetDownloadURL(ctx *gin.Context, bucketName, objectName string, expiry time.Duration) (string, error) {
+func (mc *MinioClient) GetDownloadURL(ctx context.Context, bucketName, objectName string, expiry time.Duration) (string, error) {
 	return mc.GetPresignedURL(ctx, bucketName, objectName, expiry, "GET")
 }
 
 // GetUploadURL 获取上传URL（PUT方法的预签名URL）
-func (mc *MinioClient) GetUploadURL(ctx *gin.Context, bucketName, objectName string, expiry time.Duration) (string, error) {
+func (mc *MinioClient) GetUploadURL(ctx context.Context, bucketName, objectName string, expiry time.Duration) (string, error) {
 	return mc.GetPresignedURL(ctx, bucketName, objectName, expiry, "PUT")
 }
 
 // DeleteFile 删除文件
-func (mc *MinioClient) DeleteFile(ctx *gin.Context, bucketName, objectName string) error {
+func (mc *MinioClient) DeleteFile(ctx context.Context, bucketName, objectName string) error {
 	start := time.Now()
 
 	err := mc.client.RemoveObject(ctx, bucketName, objectName, minio.RemoveObjectOptions{})
@@ -287,7 +302,7 @@ func (mc *MinioClient) DeleteFile(ctx *gin.Context, bucketName, objectName strin
 }
 
 // ListObjects 列出对象
-func (mc *MinioClient) ListObjects(ctx *gin.Context, bucketName, prefix string, recursive bool) ([]minio.ObjectInfo, error) {
+func (mc *MinioClient) ListObjects(ctx context.Context, bucketName, prefix string, recursive bool) ([]minio.ObjectInfo, error) {
 	start := time.Now()
 
 	var objects []minio.ObjectInfo
@@ -311,7 +326,7 @@ func (mc *MinioClient) ListObjects(ctx *gin.Context, bucketName, prefix string, 
 }
 
 // ObjectExists 检查对象是否存在
-func (mc *MinioClient) ObjectExists(ctx *gin.Context, bucketName, objectName string) (bool, error) {
+func (mc *MinioClient) ObjectExists(ctx context.Context, bucketName, objectName string) (bool, error) {
 	start := time.Now()
 
 	_, err := mc.client.StatObject(ctx, bucketName, objectName, minio.StatObjectOptions{})
@@ -329,7 +344,7 @@ func (mc *MinioClient) ObjectExists(ctx *gin.Context, bucketName, objectName str
 }
 
 // GetObjectInfo 获取对象信息
-func (mc *MinioClient) GetObjectInfo(ctx *gin.Context, bucketName, objectName string) (*DownloadInfo, error) {
+func (mc *MinioClient) GetObjectInfo(ctx context.Context, bucketName, objectName string) (*DownloadInfo, error) {
 	start := time.Now()
 
 	objInfo, err := mc.client.StatObject(ctx, bucketName, objectName, minio.StatObjectOptions{})
@@ -353,7 +368,7 @@ func (mc *MinioClient) GetObjectInfo(ctx *gin.Context, bucketName, objectName st
 }
 
 // CopyObject 复制对象
-func (mc *MinioClient) CopyObject(ctx *gin.Context, srcBucket, srcObject, destBucket, destObject string) error {
+func (mc *MinioClient) CopyObject(ctx context.Context, srcBucket, srcObject, destBucket, destObject string) error {
 	start := time.Now()
 
 	srcOpts := minio.CopySrcOptions{

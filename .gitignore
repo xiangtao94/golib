@@ -25,7 +25,7 @@ gen
 *.log
 *.zip
 
-log/*
+log/
 *.swp
 *.swo
 

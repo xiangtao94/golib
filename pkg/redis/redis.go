@@ -2,13 +2,13 @@ package redis
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"net"
 	"strings"
 	"time"
 
 	"github.com/duke-git/lancet/v2/slice"
-	"github.com/gin-gonic/gin"
 	"github.com/redis/go-redis/v9"
 
 	"github.com/xiangtao94/golib/pkg/env"
@@ -33,17 +33,19 @@ const (
 )
 
 type RedisConf struct {
-	Addr            string        `yaml:"addr"`
-	Db              int           `yaml:"db"`
-	Password        string        `yaml:"password"`
-	MaxIdle         int           `yaml:"maxIdle"`
-	MaxActive       int           `yaml:"maxActive"`
-	IdleTimeout     time.Duration `yaml:"idleTimeout"`
-	MaxConnLifetime time.Duration `yaml:"maxConnLifetime"`
-	ConnTimeOut     time.Duration `yaml:"connTimeOut"`
-	ReadTimeOut     time.Duration `yaml:"readTimeOut"`
-	WriteTimeOut    time.Duration `yaml:"writeTimeOut"`
-	MaxRetries      int           `yaml:"maxRetries"`
+	Addr                   string        `yaml:"addr"`
+	Db                     int           `yaml:"db"`
+	Password               string        `yaml:"password"`
+	MaxIdle                int           `yaml:"maxIdle"`
+	MaxActive              int           `yaml:"maxActive"`
+	IdleTimeout            time.Duration `yaml:"idleTimeout"`
+	MaxConnLifetime        time.Duration `yaml:"maxConnLifetime"`
+	ConnTimeOut            time.Duration `yaml:"connTimeOut"`
+	ReadTimeOut            time.Duration `yaml:"readTimeOut"`
+	WriteTimeOut           time.Duration `yaml:"writeTimeOut"`
+	MaxRetries             int           `yaml:"maxRetries"`
+	TLSConfig              *tls.Config   `yaml:"-"`
+	AllowInsecureTransport bool          `yaml:"allowInsecureTransport"`
 }
 
 func (conf *RedisConf) checkConf() {
@@ -80,7 +82,37 @@ type Redis struct {
 func InitRedisClient(conf RedisConf) (*Redis, error) {
 	conf.checkConf()
 
-	opts := &redis.UniversalOptions{
+	opts, err := buildRedisOptions(conf)
+	if err != nil {
+		return nil, err
+	}
+
+	rdb := redis.NewUniversalClient(opts)
+	rdb.AddHook(newLogger())
+
+	// Ping 测试
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	if err := rdb.Ping(ctx).Err(); err != nil {
+		_ = rdb.Close()
+		return nil, fmt.Errorf("redis ping error: %w", err)
+	}
+
+	return &Redis{UniversalClient: rdb}, nil
+}
+
+func buildRedisOptions(conf RedisConf) (*redis.UniversalOptions, error) {
+	if conf.TLSConfig == nil && !conf.AllowInsecureTransport {
+		return nil, fmt.Errorf("redis: TLS is required; configure TLSConfig or explicitly allow insecure transport")
+	}
+	var tlsConfig *tls.Config
+	if conf.TLSConfig != nil {
+		tlsConfig = conf.TLSConfig.Clone()
+		if tlsConfig.MinVersion == 0 {
+			tlsConfig.MinVersion = tls.VersionTLS12
+		}
+	}
+	return &redis.UniversalOptions{
 		Addrs:           strings.Split(conf.Addr, ","),
 		DB:              conf.Db,
 		Password:        conf.Password,
@@ -92,19 +124,8 @@ func InitRedisClient(conf RedisConf) (*Redis, error) {
 		DialTimeout:     conf.ConnTimeOut,
 		WriteTimeout:    conf.WriteTimeOut,
 		MaxRetries:      conf.MaxRetries,
-	}
-
-	rdb := redis.NewUniversalClient(opts)
-	rdb.AddHook(newLogger())
-
-	// Ping 测试
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := rdb.Ping(ctx).Err(); err != nil {
-		return nil, fmt.Errorf("redis ping error: %w", err)
-	}
-
-	return &Redis{UniversalClient: rdb}, nil
+		TLSConfig:       tlsConfig,
+	}, nil
 }
 
 type redisLogger struct {
@@ -160,9 +181,9 @@ func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.
 }
 
 func (r *redisLogger) commonFields(ctx context.Context) []zlog.Field {
-	var requestID string
-	if c, ok := ctx.(*gin.Context); ok && c != nil {
-		requestID, _ = ctx.Value(zlog.ContextKeyRequestID).(string)
+	requestID := ""
+	if ctx != nil {
+		requestID = zlog.GetRequestID(ctx)
 	}
 	return []zlog.Field{
 		zlog.String("requestId", requestID),

@@ -27,13 +27,12 @@ go get github.com/minio/minio-go/v7
 
 ```go
 type MinioConf struct {
-    AK       string `yaml:"ak"`       // Access Key
-    SK       string `yaml:"sk"`       // Secret Key  
-    Endpoint string `yaml:"endpoint"` // MinIO服务端点
-    UseSSL   bool   `yaml:"useSSL"`   // 是否使用SSL
-    Region   string `yaml:"region"`   // 区域
-    	// ExternalURL 外部URL，用于生成文件URL
-	ExternalURL string `yaml:"externalURL"`
+    AK                     string      `yaml:"ak"`       // Access Key
+    SK                     string      `yaml:"sk"`       // Secret Key
+    Endpoint               string      `yaml:"endpoint"` // 带 http/https scheme 的 MinIO 端点
+    Region                 string      `yaml:"region"`   // 区域
+    TLSConfig              *tls.Config `yaml:"-"`
+    AllowInsecureTransport bool        `yaml:"allowInsecureTransport"`
 }
 ```
 
@@ -43,10 +42,12 @@ type MinioConf struct {
 minio:
   ak: "your-access-key"
   sk: "your-secret-key"
-  endpoint: "http://localhost:9000"
-  useSSL: false
+  endpoint: "https://minio.example.com"
   region: "us-east-1"
 ```
+
+生产环境默认要求 HTTPS。仅本地开发确需使用 HTTP 时，设置
+`allowInsecureTransport: true`。
 
 ## 📖 使用方法
 
@@ -56,8 +57,7 @@ minio:
 config := MinioConf{
     AK:       "your-access-key",
     SK:       "your-secret-key",
-    Endpoint: "http://localhost:9000",
-    UseSSL:   false,
+    Endpoint: "https://minio.example.com",
     Region:   "us-east-1",
 }
 

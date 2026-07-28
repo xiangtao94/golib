@@ -8,13 +8,11 @@ package golib
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"log"
+	"net"
 	"net/http"
-	"os"
-	"os/signal"
-	"strings"
-	"syscall"
+	"net/http/pprof"
 	"time"
 
 	"github.com/gin-gonic/gin"
@@ -23,100 +21,203 @@ import (
 	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
-
-	_ "net/http/pprof"
 )
 
-type BootstrapOption func(engine *gin.Engine)
+type BootstrapOption func(engine *gin.Engine) error
 
 // 1. 应用名称
 func WithAppName(appName string) BootstrapOption {
-	return func(engine *gin.Engine) {
+	return func(engine *gin.Engine) error {
 		env.SetAppName(appName)
+		return nil
 	}
 }
 
 // 2. 国际化环境
 func WithLang(lang string) BootstrapOption {
-	return func(engine *gin.Engine) {
+	return func(engine *gin.Engine) error {
 		env.SetLanguage(lang)
+		return nil
 	}
 }
 
 // 3. 日志 - 支持可选配置
 func WithZlog(conf ...zlog.LogConfig) BootstrapOption {
-	return func(engine *gin.Engine) {
+	return func(engine *gin.Engine) error {
 		zlog.InitLog(conf...)
+		return nil
 	}
 }
 
 // 4. Access Log - 支持可选配置
 func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
-	return func(engine *gin.Engine) {
+	return func(engine *gin.Engine) error {
 		middleware.RegistryAccessLog(engine, conf...)
+		return nil
 	}
 }
 
 // 5. Recovery
 func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
-	return func(engine *gin.Engine) {
+	return func(engine *gin.Engine) error {
 		middleware.RegistryRecovery(engine, handler)
+		return nil
 	}
 }
 
 // 6. Prometheus
 func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
-	return func(engine *gin.Engine) {
-		// 统一的Prometheus注册
-		middleware.RegistryMetrics(engine, cs...)
+	return func(engine *gin.Engine) error {
+		_, err := middleware.RegistryMetrics(engine, cs...)
+		return err
 	}
 }
 
-func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) {
-	// 依次执行传入的可选项
+func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) error {
 	for _, opt := range opts {
-		opt(engine)
+		if opt == nil {
+			continue
+		}
+		if err := opt(engine); err != nil {
+			return err
+		}
 	}
-	// 统一添加pprof
-	engine.GET("/debug/pprof/*any", gin.WrapH(http.DefaultServeMux))
+	return nil
 }
 
-func StartHttpServer(engine *gin.Engine, port int) error {
-	addr := fmt.Sprintf(":%d", port)
-	if strings.TrimSpace(addr) == "" || addr == ":" {
-		addr = ":8080"
+// RegisterPprof explicitly registers pprof handlers on the supplied engine.
+// Mount this only on an authenticated, network-isolated admin listener.
+func RegisterPprof(engine *gin.Engine) {
+	engine.GET("/debug/pprof/", gin.WrapF(pprof.Index))
+	engine.GET("/debug/pprof/cmdline", gin.WrapF(pprof.Cmdline))
+	engine.GET("/debug/pprof/profile", gin.WrapF(pprof.Profile))
+	engine.POST("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
+	engine.GET("/debug/pprof/symbol", gin.WrapF(pprof.Symbol))
+	engine.GET("/debug/pprof/trace", gin.WrapF(pprof.Trace))
+
+	for _, profile := range []string{
+		"allocs",
+		"block",
+		"goroutine",
+		"heap",
+		"mutex",
+		"threadcreate",
+	} {
+		engine.GET("/debug/pprof/"+profile, gin.WrapH(pprof.Handler(profile)))
 	}
-	srv := &http.Server{
-		Addr:    addr,
-		Handler: engine,
+}
+
+type HTTPServerConfig struct {
+	Addr              string
+	ReadHeaderTimeout time.Duration
+	ReadTimeout       time.Duration
+	WriteTimeout      time.Duration
+	IdleTimeout       time.Duration
+	ShutdownTimeout   time.Duration
+	MaxHeaderBytes    int
+}
+
+func DefaultHTTPServerConfig(port int) HTTPServerConfig {
+	if port <= 0 {
+		port = 8080
+	}
+	return HTTPServerConfig{
+		Addr:              fmt.Sprintf(":%d", port),
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      30 * time.Second,
+		IdleTimeout:       60 * time.Second,
+		ShutdownTimeout:   10 * time.Second,
+		MaxHeaderBytes:    1 << 20,
+	}
+}
+
+type HTTPServer struct {
+	server          *http.Server
+	shutdownTimeout time.Duration
+}
+
+func NewHTTPServer(handler http.Handler, conf HTTPServerConfig) *HTTPServer {
+	defaults := DefaultHTTPServerConfig(8080)
+	if conf.Addr == "" {
+		conf.Addr = defaults.Addr
+	}
+	if conf.ReadHeaderTimeout <= 0 {
+		conf.ReadHeaderTimeout = defaults.ReadHeaderTimeout
+	}
+	if conf.ReadTimeout <= 0 {
+		conf.ReadTimeout = defaults.ReadTimeout
+	}
+	if conf.WriteTimeout <= 0 {
+		conf.WriteTimeout = defaults.WriteTimeout
+	}
+	if conf.IdleTimeout <= 0 {
+		conf.IdleTimeout = defaults.IdleTimeout
+	}
+	if conf.ShutdownTimeout <= 0 {
+		conf.ShutdownTimeout = defaults.ShutdownTimeout
+	}
+	if conf.MaxHeaderBytes <= 0 {
+		conf.MaxHeaderBytes = defaults.MaxHeaderBytes
 	}
 
-	// Initializing the server in a goroutine so that
-	// it won't block the graceful shutdown handling below
+	return &HTTPServer{
+		server: &http.Server{
+			Addr:              conf.Addr,
+			Handler:           handler,
+			ReadHeaderTimeout: conf.ReadHeaderTimeout,
+			ReadTimeout:       conf.ReadTimeout,
+			WriteTimeout:      conf.WriteTimeout,
+			IdleTimeout:       conf.IdleTimeout,
+			MaxHeaderBytes:    conf.MaxHeaderBytes,
+		},
+		shutdownTimeout: conf.ShutdownTimeout,
+	}
+}
+
+func (s *HTTPServer) Run(ctx context.Context) error {
+	listener, err := net.Listen("tcp", s.server.Addr)
+	if err != nil {
+		return fmt.Errorf("listen on %s: %w", s.server.Addr, err)
+	}
+	return s.Serve(ctx, listener)
+}
+
+func (s *HTTPServer) Serve(ctx context.Context, listener net.Listener) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+
+	serveResult := make(chan error, 1)
 	go func() {
-		if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("listen: %s\n", err)
-		}
+		serveResult <- s.server.Serve(listener)
 	}()
-	log.Printf("Server is running on %s", addr)
-	// Wait for interrupt signal to gracefully shutdown the server with
-	// a timeout of 5 seconds.
-	quit := make(chan os.Signal, 1)
-	// kill (no param) default send syscall.SIGTERM
-	// kill -2 is syscall.SIGINT
-	// kill -9 is syscall.SIGKILL but can't be catch, so don't need add it
-	signal.Notify(quit, syscall.SIGINT, syscall.SIGTERM)
-	<-quit
-	log.Print("Shutting down server...")
 
-	// The context is used to inform the server it has 5 seconds to finish
-	// the request it is currently handling
-	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()
-	if err := srv.Shutdown(ctx); err != nil {
-		zlog.Error(nil, "Server forced to shutdown: %v", err)
+	select {
+	case err := <-serveResult:
+		return normalizeServerError(err)
+	case <-ctx.Done():
+		shutdownCtx, cancel := context.WithTimeout(context.Background(), s.shutdownTimeout)
+		defer cancel()
+
+		shutdownErr := s.server.Shutdown(shutdownCtx)
+		if shutdownErr != nil {
+			_ = s.server.Close()
+		}
+		serveErr := normalizeServerError(<-serveResult)
+		return errors.Join(shutdownErr, serveErr)
 	}
+}
 
-	log.Print("Server exiting")
-	return nil
+func normalizeServerError(err error) error {
+	if err == nil || errors.Is(err, http.ErrServerClosed) {
+		return nil
+	}
+	return err
+}
+
+// StartHTTPServer is a convenience wrapper. The caller owns signal handling
+// and cancels ctx to initiate graceful shutdown.
+func StartHTTPServer(ctx context.Context, engine *gin.Engine, port int) error {
+	return NewHTTPServer(engine, DefaultHTTPServerConfig(port)).Run(ctx)
 }

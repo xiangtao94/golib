@@ -1,36 +1,47 @@
 package errors
 
 import (
+	"context"
 	"fmt"
-	"github.com/gin-gonic/gin"
+	"net/http"
+
 	"github.com/xiangtao94/golib/pkg/env"
 )
 
 // Error 结构体支持多语言
 type Error struct {
-	Code    int
-	Message map[string]string // 存储不同语言的消息
+	Code       int
+	HTTPStatus int
+	Message    map[string]string // 存储不同语言的消息
 }
 
 // NewError 创建新的错误对象，并支持双语
 func NewError(code int, messages map[string]string) Error {
-	// 如果messages为空，则自动从ErrMsg获取
-	if messages == nil {
-		messages = make(map[string]string)
+	copiedMessages := make(map[string]string, len(messages)+2)
+	for language, message := range messages {
+		copiedMessages[language] = message
 	}
 
-	// 获取zh和en默认消息
 	if msg, ok := ErrMsg["zh"][code]; ok {
-		messages["zh"] = msg
+		copiedMessages["zh"] = msg
 	}
 	if msg, ok := ErrMsg["en"][code]; ok {
-		messages["en"] = msg
+		copiedMessages["en"] = msg
 	}
 
 	return Error{
-		Code:    code,
-		Message: messages,
+		Code:       code,
+		HTTPStatus: defaultHTTPStatus(code),
+		Message:    copiedMessages,
 	}
+}
+
+func (err Error) WithHTTPStatus(status int) Error {
+	if status < 400 || status > 599 {
+		status = http.StatusInternalServerError
+	}
+	err.HTTPStatus = status
+	return err
 }
 
 func (err Error) Sprintf(v ...interface{}) Error {
@@ -43,13 +54,27 @@ func (err Error) Sprintf(v ...interface{}) Error {
 }
 
 // GetMessage 获取指定语言的错误信息
-func (err Error) GetMessage(ctx *gin.Context) string {
-	lang := ctx.GetString(env.I18N_CONTEXT)
+func (err Error) GetMessage(ctx context.Context) string {
+	lang := ""
+	if ctx != nil {
+		lang, _ = ctx.Value(env.I18N_CONTEXT).(string)
+	}
 	// 如果语言不存在，返回默认语言信息
 	if msg, exists := err.Message[lang]; exists {
 		return msg
 	} else {
 		return err.Message[env.GetLanguage()]
+	}
+}
+
+func defaultHTTPStatus(code int) int {
+	switch code {
+	case PARAM_ERROR, INVALID_REQUEST:
+		return http.StatusBadRequest
+	case USER_NOT_LOGIN:
+		return http.StatusUnauthorized
+	default:
+		return http.StatusInternalServerError
 	}
 }
 

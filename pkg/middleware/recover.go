@@ -2,8 +2,7 @@ package middleware
 
 import (
 	"errors"
-	"github.com/xiangtao94/golib/pkg/zlog"
-	"go.uber.org/zap"
+	"fmt"
 	"net"
 	"net/http"
 	"os"
@@ -11,6 +10,8 @@ import (
 	"strings"
 
 	"github.com/gin-gonic/gin"
+	"github.com/xiangtao94/golib/pkg/zlog"
+	"go.uber.org/zap"
 )
 
 func RegistryRecovery(engine *gin.Engine, handle gin.RecoveryFunc) {
@@ -19,7 +20,7 @@ func RegistryRecovery(engine *gin.Engine, handle gin.RecoveryFunc) {
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 	}
-	//engine.Use(CustomRecoveryWithZap(zlog.NewLoggerWithSkip(1), handle))
+	engine.Use(CustomRecoveryWithZap(zlog.NewLoggerWithSkip(1), handle))
 }
 
 func CustomRecoveryWithZap(logger *zap.Logger, handle gin.RecoveryFunc) gin.HandlerFunc {
@@ -41,13 +42,17 @@ func CustomRecoveryWithZap(logger *zap.Logger, handle gin.RecoveryFunc) gin.Hand
 					logger.Error("Broken pipe or connection reset by peer",
 						zap.Any("error", err),
 					)
-					c.Error(err.(error)) // 记录 gin 错误
+					recoveredErr, ok := err.(error)
+					if !ok {
+						recoveredErr = fmt.Errorf("panic: %v", err)
+					}
+					_ = c.Error(recoveredErr)
 					c.Abort()
 					return
 				}
-				logger = zlog.LoggerWithContext(logger, c)
+				requestLogger := zlog.LoggerWithContext(logger, c)
 				// 正常 panic 情况
-				logger.Error("Panic Recovery",
+				requestLogger.Error("Panic Recovery",
 					zap.Any("error", err),
 					zap.Any("stack", string(debug.Stack())),
 				)

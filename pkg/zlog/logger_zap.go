@@ -8,6 +8,7 @@
 package zlog
 
 import (
+	"context"
 	"sync"
 
 	"github.com/gin-gonic/gin"
@@ -40,57 +41,62 @@ func NewLoggerWithSkip(skip int) *zap.Logger {
 	return logger
 }
 
-func zapLogger(ctx *gin.Context) *zap.Logger {
+func zapLogger(ctx context.Context) *zap.Logger {
 	m := NewLoggerWithSkip(1)
 	if ctx == nil {
 		return m
 	}
-	if t, exist := ctx.Get(zapLoggerAddr); exist {
-		if l, ok := t.(*zap.Logger); ok {
-			return l
+
+	if ginCtx, ok := ctx.(*gin.Context); ok && ginCtx != nil {
+		if cached, exists := ginCtx.Get(zapLoggerAddr); exists {
+			if logger, valid := cached.(*zap.Logger); valid {
+				return logger
+			}
 		}
+		logger := LoggerWithContext(m, ginCtx)
+		ginCtx.Set(zapLoggerAddr, logger)
+		return logger
 	}
-	l := LoggerWithContext(m, ctx)
-	ctx.Set(zapLoggerAddr, l)
-	return l
+
+	return LoggerWithContext(m, ctx)
 }
 
-func DebugLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func DebugLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
 	zapLogger(ctx).Debug(msg, fields...)
 }
 
-func InfoLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func InfoLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
 	zapLogger(ctx).Info(msg, fields...)
 }
 
-func WarnLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func WarnLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
 	zapLogger(ctx).Warn(msg, fields...)
 }
 
-func ErrorLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func ErrorLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
 	zapLogger(ctx).Error(msg, fields...)
 }
 
-func PanicLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func PanicLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
 	zapLogger(ctx).Panic(msg, fields...)
 }
 
-func FatalLogger(ctx *gin.Context, msg string, fields ...zap.Field) {
+func FatalLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}

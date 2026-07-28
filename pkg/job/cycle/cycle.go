@@ -3,188 +3,217 @@ package cycle
 import (
 	"context"
 	"fmt"
-	"runtime"
+	"runtime/debug"
 	"sync"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
+// Cycle runs jobs repeatedly. The interval starts after each execution
+// completes, so a slow job never overlaps with itself unless Concurrency > 1.
 type Cycle struct {
+	mu        sync.Mutex
 	entries   []*Entry
-	gin       *gin.Engine
-	beforeRun func(*gin.Context) bool
-	afterRun  func(*gin.Context)
-
-	cancelFuncs []context.CancelFunc
-	wg          sync.WaitGroup
-	mu          sync.Mutex
+	beforeRun func(context.Context) bool
+	afterRun  func(context.Context)
+	cancel    context.CancelFunc
+	done      chan struct{}
+	running   bool
+	wg        sync.WaitGroup
 }
 
 type Job interface {
-	Run(ctx *gin.Context) error
+	Run(context.Context) error
 }
 
 type Entry struct {
-	Interval      time.Duration // 任务执行完成后等待多久再次执行
+	Interval      time.Duration
 	Job           Job
-	Concurrency   int           // 并发数，默认1
-	MaxRetry      int           // 失败重试最大次数，默认0不重试
-	RetryInterval time.Duration // 重试间隔，默认1秒
+	Concurrency   int
+	MaxRetry      int
+	RetryInterval time.Duration
 }
 
-func New(engine *gin.Engine) *Cycle {
-	return &Cycle{
-		gin: engine,
-	}
+func New() *Cycle {
+	return &Cycle{}
 }
 
-type FuncJob func(*gin.Context) error
+type FuncJob func(context.Context) error
 
-func (f FuncJob) Run(ctx *gin.Context) error {
+func (f FuncJob) Run(ctx context.Context) error {
 	return f(ctx)
 }
 
-func (c *Cycle) AddBeforeRun(beforeRun func(*gin.Context) bool) *Cycle {
+func (c *Cycle) AddBeforeRun(beforeRun func(context.Context) bool) *Cycle {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.beforeRun = beforeRun
 	return c
 }
 
-func (c *Cycle) AddAfterRun(afterRun func(*gin.Context)) *Cycle {
+func (c *Cycle) AddAfterRun(afterRun func(context.Context)) *Cycle {
+	c.mu.Lock()
+	defer c.mu.Unlock()
 	c.afterRun = afterRun
 	return c
 }
 
-// 新增参数：concurrency 并发数，maxRetry 最大重试次数，retryInterval 重试间隔
-func (c *Cycle) AddFunc(interval time.Duration, cmd func(*gin.Context) error) {
-	entry := &Entry{
-		Interval:      interval,
-		Job:           FuncJob(cmd),
-		Concurrency:   1,
-		MaxRetry:      0,
-		RetryInterval: 0,
-	}
-	c.entries = append(c.entries, entry)
+func (c *Cycle) AddFunc(interval time.Duration, cmd func(context.Context) error) {
+	c.AddFuncWithConfig(interval, cmd, 1, 0, time.Second)
 }
 
-// 新增参数：concurrency 并发数，maxRetry 最大重试次数，retryInterval 重试间隔
-func (c *Cycle) AddFuncWithConfig(interval time.Duration, cmd func(*gin.Context) error, concurrency, maxRetry int, retryInterval time.Duration) {
+func (c *Cycle) AddFuncWithConfig(
+	interval time.Duration,
+	cmd func(context.Context) error,
+	concurrency, maxRetry int,
+	retryInterval time.Duration,
+) {
+	if interval <= 0 {
+		interval = time.Second
+	}
 	if concurrency <= 0 {
 		concurrency = 1
+	}
+	if maxRetry < 0 {
+		maxRetry = 0
 	}
 	if retryInterval <= 0 {
 		retryInterval = time.Second
 	}
 
-	entry := &Entry{
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.running {
+		panic("cycle: jobs cannot be added after Start")
+	}
+	c.entries = append(c.entries, &Entry{
 		Interval:      interval,
 		Job:           FuncJob(cmd),
 		Concurrency:   concurrency,
 		MaxRetry:      maxRetry,
 		RetryInterval: retryInterval,
-	}
-	c.entries = append(c.entries, entry)
+	})
 }
 
-func (c *Cycle) Start() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
+// Start begins all registered workers. Calling Start while already running is
+// an idempotent no-op. Cancellation of parent has the same effect as Stop.
+func (c *Cycle) Start(parent context.Context) {
+	if parent == nil {
+		parent = context.Background()
+	}
 
-	for _, e := range c.entries {
-		for i := 0; i < e.Concurrency; i++ {
-			ctx, cancel := context.WithCancel(context.Background())
-			c.cancelFuncs = append(c.cancelFuncs, cancel)
+	c.mu.Lock()
+	if c.running {
+		c.mu.Unlock()
+		return
+	}
+	runCtx, cancel := context.WithCancel(parent)
+	c.cancel = cancel
+	c.done = make(chan struct{})
+	c.running = true
+	done := c.done
+	entries := append([]*Entry(nil), c.entries...)
+	for _, entry := range entries {
+		for range entry.Concurrency {
 			c.wg.Add(1)
-			go c.run(ctx, e)
+			go c.run(runCtx, entry)
 		}
 	}
+	c.mu.Unlock()
+
+	go func() {
+		c.wg.Wait()
+		c.mu.Lock()
+		c.running = false
+		c.cancel = nil
+		close(done)
+		c.mu.Unlock()
+	}()
 }
 
-func (c *Cycle) Stop() {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	for _, cancel := range c.cancelFuncs {
-		cancel()
+// Stop cancels the current run and waits for workers. The wait itself obeys
+// ctx, so callers control their shutdown budget.
+func (c *Cycle) Stop(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
 	}
-	c.cancelFuncs = nil
-	c.wg.Wait()
+
+	c.mu.Lock()
+	if !c.running {
+		c.mu.Unlock()
+		return nil
+	}
+	cancel := c.cancel
+	done := c.done
+	c.mu.Unlock()
+
+	cancel()
+
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
-func (c *Cycle) run(ctx context.Context, e *Entry) {
+func (c *Cycle) run(ctx context.Context, entry *Entry) {
 	defer c.wg.Done()
 
 	for {
-		select {
-		case <-ctx.Done():
+		if ctx.Err() != nil {
 			return
-		default:
 		}
-
-		c.runWithRetry(ctx, e)
-
-		select {
-		case <-time.After(e.Interval):
-		case <-ctx.Done():
+		c.runWithRetry(ctx, entry)
+		if !wait(ctx, entry.Interval) {
 			return
 		}
 	}
 }
 
-// 包装了重试逻辑
-func (c *Cycle) runWithRetry(ctx context.Context, e *Entry) {
-	tryCount := 0
-	for {
-		err := c.runOnce(ctx, e)
-		if err == nil {
+func (c *Cycle) runWithRetry(ctx context.Context, entry *Entry) {
+	for attempt := 0; attempt <= entry.MaxRetry; attempt++ {
+		err := c.runOnce(ctx, entry)
+		if err == nil || ctx.Err() != nil {
 			return
 		}
-
-		tryCount++
-		zlog.Errorf(nil, "cycle job failed, retry %d/%d: %+v", tryCount, e.MaxRetry, err)
-		if tryCount > e.MaxRetry {
-			return
-		}
-
-		select {
-		case <-time.After(e.RetryInterval):
-		case <-ctx.Done():
+		zlog.Errorf(ctx, "cycle job failed, retry %d/%d: %+v", attempt+1, entry.MaxRetry, err)
+		if attempt == entry.MaxRetry || !wait(ctx, entry.RetryInterval) {
 			return
 		}
 	}
 }
 
-func (c *Cycle) runOnce(ctx context.Context, e *Entry) error {
-	ginCtx := gin.CreateTestContextOnly(nil, c.gin)
-
+func (c *Cycle) runOnce(ctx context.Context, entry *Entry) (err error) {
 	defer func() {
-		if r := recover(); r != nil {
-			const size = 64 << 10
-			buf := make([]byte, size)
-			buf = buf[:runtime.Stack(buf, false)]
-
-			// 使用现有的zlog API记录错误，性能更好
-			zlog.Errorf(ginCtx, "cycle job panic: %+v\nhandle: %s\nrequestId: %s\nlogId: %s\nstack:\n%s",
-				r,
-				ginCtx.HandlerName(),
-				ginCtx.GetString("requestId"),
-				ginCtx.GetString("logID"),
-				string(buf),
-			)
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("cycle job panic: %v", recovered)
+			zlog.Errorf(ctx, "%v\nstack:\n%s", err, debug.Stack())
 		}
 	}()
 
-	if c.beforeRun != nil {
-		ok := c.beforeRun(ginCtx)
-		if !ok {
-			return fmt.Errorf("beforeRun returned false")
-		}
-	}
+	c.mu.Lock()
+	beforeRun := c.beforeRun
+	afterRun := c.afterRun
+	c.mu.Unlock()
 
-	err := e.Job.Run(ginCtx)
-	if c.afterRun != nil {
-		c.afterRun(ginCtx)
+	if beforeRun != nil && !beforeRun(ctx) {
+		return nil
 	}
-	return err
+	if afterRun != nil {
+		defer afterRun(ctx)
+	}
+	return entry.Job.Run(ctx)
+}
+
+func wait(ctx context.Context, duration time.Duration) bool {
+	timer := time.NewTimer(duration)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-ctx.Done():
+		return false
+	}
 }

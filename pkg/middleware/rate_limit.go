@@ -1,62 +1,134 @@
 package middleware
 
 import (
-	"golang.org/x/time/rate"
+	"net"
 	"net/http"
 	"sync"
 	"time"
 
 	"github.com/gin-gonic/gin"
+	"golang.org/x/time/rate"
 )
 
-// RateLimiter 限流器结构
+type RateLimitKeyFunc func(*gin.Context) string
+
+type RateLimiterConfig struct {
+	Rate       rate.Limit
+	Burst      int
+	TTL        time.Duration
+	MaxEntries int
+	Key        RateLimitKeyFunc
+}
+
+type limiterEntry struct {
+	limiter  *rate.Limiter
+	lastSeen time.Time
+}
+
 type RateLimiter struct {
-	ips   map[string]*rate.Limiter
-	mu    *sync.RWMutex
-	rate  rate.Limit
-	burst int
-	ttl   time.Duration
+	mu          sync.Mutex
+	entries     map[string]*limiterEntry
+	rate        rate.Limit
+	burst       int
+	ttl         time.Duration
+	maxEntries  int
+	lastCleanup time.Time
 }
 
-// NewRateLimiter 创建新的限流器
-func NewRateLimiter(r rate.Limit, b int, ttl time.Duration) *RateLimiter {
+func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
+	if config.Rate <= 0 {
+		config.Rate = 1
+	}
+	if config.Burst <= 0 {
+		config.Burst = 1
+	}
+	if config.TTL <= 0 {
+		config.TTL = 10 * time.Minute
+	}
+	if config.MaxEntries <= 0 {
+		config.MaxEntries = 10_000
+	}
 	return &RateLimiter{
-		ips:   make(map[string]*rate.Limiter),
-		mu:    &sync.RWMutex{},
-		rate:  r,
-		burst: b,
-		ttl:   ttl,
+		entries:     make(map[string]*limiterEntry),
+		rate:        config.Rate,
+		burst:       config.Burst,
+		ttl:         config.TTL,
+		maxEntries:  config.MaxEntries,
+		lastCleanup: time.Now(),
 	}
 }
 
-// getLimiter 获取指定IP的限流器
-func (rl *RateLimiter) getLimiter(ip string) *rate.Limiter {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
+func (limiter *RateLimiter) allow(key string, now time.Time) bool {
+	limiter.mu.Lock()
+	defer limiter.mu.Unlock()
 
-	limiter, exists := rl.ips[ip]
+	if now.Sub(limiter.lastCleanup) >= limiter.ttl/2 {
+		limiter.removeExpired(now)
+		limiter.lastCleanup = now
+	}
+	entry, exists := limiter.entries[key]
 	if !exists {
-		limiter = rate.NewLimiter(rl.rate, rl.burst)
-		rl.ips[ip] = limiter
+		if len(limiter.entries) >= limiter.maxEntries {
+			limiter.evictOldest()
+		}
+		entry = &limiterEntry{limiter: rate.NewLimiter(limiter.rate, limiter.burst)}
+		limiter.entries[key] = entry
 	}
-
-	return limiter
+	entry.lastSeen = now
+	return entry.limiter.AllowN(now, 1)
 }
 
-// RateLimitMiddleware 限流中间件
-func RateLimitMiddleware(r rate.Limit, b int, ttl time.Duration) gin.HandlerFunc {
-	limiter := NewRateLimiter(r, b, ttl)
+func (limiter *RateLimiter) removeExpired(now time.Time) {
+	for key, entry := range limiter.entries {
+		if now.Sub(entry.lastSeen) >= limiter.ttl {
+			delete(limiter.entries, key)
+		}
+	}
+}
 
-	return func(c *gin.Context) {
-		ip := c.ClientIP()
-		if !limiter.getLimiter(ip).Allow() {
-			c.JSON(http.StatusTooManyRequests, gin.H{
+func (limiter *RateLimiter) evictOldest() {
+	var oldestKey string
+	var oldestTime time.Time
+	for key, entry := range limiter.entries {
+		if oldestKey == "" || entry.lastSeen.Before(oldestTime) {
+			oldestKey = key
+			oldestTime = entry.lastSeen
+		}
+	}
+	if oldestKey != "" {
+		delete(limiter.entries, oldestKey)
+	}
+}
+
+// DirectClientIP keys by the TCP peer and does not trust forwarded headers.
+func DirectClientIP(ctx *gin.Context) string {
+	host, _, err := net.SplitHostPort(ctx.Request.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return ctx.Request.RemoteAddr
+}
+
+// TrustedProxyClientIP uses Gin's configured trusted-proxy policy.
+func TrustedProxyClientIP(ctx *gin.Context) string {
+	return ctx.ClientIP()
+}
+
+func RateLimitMiddleware(config RateLimiterConfig) gin.HandlerFunc {
+	limiter := NewRateLimiter(config)
+	keyFunc := config.Key
+	if keyFunc == nil {
+		keyFunc = DirectClientIP
+	}
+
+	return func(ctx *gin.Context) {
+		if !limiter.allow(keyFunc(ctx), time.Now()) {
+			ctx.AbortWithStatusJSON(http.StatusTooManyRequests, gin.H{
 				"code":    http.StatusTooManyRequests,
 				"message": "请求过于频繁，请稍后再试",
 			})
-			c.Abort()
 			return
 		}
-		c.Next()
+		ctx.Next()
 	}
 }

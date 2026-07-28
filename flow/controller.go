@@ -1,107 +1,93 @@
 package flow
 
 import (
+	"context"
+
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
+
 	"github.com/xiangtao94/golib/pkg/errors"
 	"github.com/xiangtao94/golib/pkg/render"
 	"github.com/xiangtao94/golib/pkg/zlog"
-	"reflect"
 )
 
+// IController is deliberately independent of Gin. The HTTP adapter passes the
+// request context and owns binding and rendering.
 type IController[T any] interface {
-	ILayer
-	Action(req *T) (any, error)
+	Action(context.Context, *T) (any, error)
+}
+
+type ControllerFactory[T any] func() IController[T]
+
+type controllerConfig struct {
+	binding  binding.Binding
+	renderer *render.JSONRenderer
+}
+
+type ControllerOption func(*controllerConfig)
+
+func WithBinding(requestBinding binding.Binding) ControllerOption {
+	return func(config *controllerConfig) {
+		config.binding = requestBinding
+	}
+}
+
+func WithRenderer(renderer *render.JSONRenderer) ControllerOption {
+	return func(config *controllerConfig) {
+		config.renderer = renderer
+	}
+}
+
+type renderPolicy interface {
 	ShouldRender() bool
-	RequestBind() binding.Binding
-	SetTrace(traceId string)
-	RenderJsonFail(err error)
-	RenderJsonSuccess(data any)
 }
 
-type Controller struct {
-	Layer
-}
-
-// 默认实现，建议具体业务Controller重写
-func (c *Controller) Action(req *any) (any, error) {
-	panic("implement me")
-}
-
-// 手动设置traceId
-func (c *Controller) SetTrace(traceId string) {
-	if traceId == "" {
-		zlog.Warnf(c.ctx, "[controller] set trace failed, traceId is empty")
-		return
+// Use adapts an explicitly constructed controller to Gin. The factory is
+// invoked once per request, preserving constructor-injected dependencies.
+func Use[T any](factory ControllerFactory[T], options ...ControllerOption) gin.HandlerFunc {
+	if factory == nil {
+		panic("flow: nil controller factory")
 	}
-	c.GetCtx().Set(zlog.ContextKeyRequestID, traceId)
-}
-
-// 默认使用 Form 绑定
-func (c *Controller) RequestBind() binding.Binding {
-	return binding.Form
-}
-
-func (c *Controller) ShouldRender() bool {
-	return true
-}
-
-func (c *Controller) RenderJsonFail(err error) {
-	render.RenderJsonFail(c.GetCtx(), err)
-}
-
-func (c *Controller) RenderJsonSuccess(data any) {
-	render.RenderJsonSucc(c.GetCtx(), data)
-}
-
-// clone Controller 实例（浅复制）
-// 这里改为用 reflect 创建新实例，避免指针类型判断复杂性
-func cloneController[T any](ctl IController[T]) IController[T] {
-	typ := reflect.TypeOf(ctl)
-	if typ.Kind() == reflect.Ptr {
-		typ = typ.Elem()
+	config := controllerConfig{
+		binding:  binding.Form,
+		renderer: render.NewJSONRenderer(nil),
 	}
-	v := reflect.New(typ).Interface()
-	newCtl, ok := v.(IController[T])
-	if !ok {
-		panic("cloneController: type does not implement IController[T]")
+	for _, option := range options {
+		if option != nil {
+			option(&config)
+		}
 	}
-	return newCtl
-}
 
-// Gin Handler
-func Use[T any](ctl IController[T]) func(ctx *gin.Context) {
-	return func(ctx *gin.Context) {
-		newCtl := cloneController(ctl)
-		newCtl.SetCtx(ctx)
-		newCtl.SetEntity(newCtl)
+	return func(ginCtx *gin.Context) {
+		controller := factory()
+		if controller == nil {
+			zlog.Error(ginCtx, "controller factory returned nil")
+			config.renderer.Failure(ginCtx, errors.ErrorSystemError)
+			return
+		}
 
-		var req T
-		contentType := ctx.GetHeader("Content-Type")
-
+		var request T
 		var err error
-		if contentType == "" {
-			// 无 Content-Type，使用 Controller 自定义的绑定器
-			err = ctx.ShouldBindWith(&req, newCtl.RequestBind())
+		if ginCtx.GetHeader("Content-Type") == "" {
+			err = ginCtx.ShouldBindWith(&request, config.binding)
 		} else {
-			err = ctx.ShouldBind(&req)
+			err = ginCtx.ShouldBind(&request)
 		}
-
 		if err != nil {
-			zlog.Errorf(newCtl.GetCtx(), "Controller %T param bind error: %v", newCtl, err)
-			newCtl.RenderJsonFail(errors.ErrorParamInvalid)
+			zlog.Errorf(ginCtx, "controller %T parameter binding failed: %v", controller, err)
+			config.renderer.Failure(ginCtx, errors.ErrorParamInvalid)
 			return
 		}
 
-		data, err := newCtl.Action(&req)
+		requestContext := zlog.WithRequestID(ginCtx.Request.Context(), zlog.GetRequestID(ginCtx))
+		data, err := controller.Action(requestContext, &request)
 		if err != nil {
-			zlog.Errorf(newCtl.GetCtx(), "Controller %T call action error: %v", newCtl, err)
-			newCtl.RenderJsonFail(err)
+			zlog.Errorf(ginCtx, "controller %T action failed: %v", controller, err)
+			config.renderer.Failure(ginCtx, err)
 			return
 		}
-
-		if newCtl.ShouldRender() {
-			newCtl.RenderJsonSuccess(data)
+		if policy, ok := controller.(renderPolicy); !ok || policy.ShouldRender() {
+			config.renderer.Success(ginCtx, data)
 		}
 	}
 }
