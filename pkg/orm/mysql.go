@@ -97,6 +97,9 @@ type MysqlConf struct {
 	WriteTimeOut    time.Duration `yaml:"writeTimeOut"`
 	ReadTimeOut     time.Duration `yaml:"readTimeOut"`
 	TLSConfigName   string        `yaml:"tlsConfigName"`
+	// SkipDefaultTransaction is an explicit performance opt-in. Keep false for
+	// payment and other correctness-sensitive write paths.
+	SkipDefaultTransaction bool `yaml:"skipDefaultTransaction"`
 	// AllowInsecureTransport must be explicitly enabled for plaintext,
 	// preferred, or certificate-skipping connections.
 	AllowInsecureTransport bool `yaml:"allowInsecureTransport"`
@@ -134,12 +137,8 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 		return nil, err
 	}
 	l := newLogger()
+	c := gormConfig(conf, l)
 	_ = driver.SetLogger(l)
-	c := &gorm.Config{
-		SkipDefaultTransaction: true,
-		FullSaveAssociations:   false,
-		Logger:                 l,
-	}
 
 	client, err = gorm.Open(mysql.Open(dsn), c)
 	if err != nil {
@@ -159,6 +158,18 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	// 设置最大空闲连接时间
 	sqlDB.SetConnMaxIdleTime(conf.ConnMaxIdlTime)
 	return client, nil
+}
+
+func newGORMConfig(conf MysqlConf) *gorm.Config {
+	return gormConfig(conf, newLogger())
+}
+
+func gormConfig(conf MysqlConf, log logger.Interface) *gorm.Config {
+	return &gorm.Config{
+		SkipDefaultTransaction: conf.SkipDefaultTransaction,
+		FullSaveAssociations:   false,
+		Logger:                 log,
+	}
 }
 
 func buildMySQLDSN(conf MysqlConf) (string, error) {

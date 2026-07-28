@@ -42,3 +42,11 @@ func TestNormalPageOrderClauseAllowsOnlyMappedFields(t *testing.T) {
 		require.False(t, order.Desc)
 	})
 }
+
+func TestGORMKeepsDefaultWriteTransactionsUnlessExplicitlyDisabled(t *testing.T) {
+	safe := newGORMConfig(MysqlConf{})
+	optimized := newGORMConfig(MysqlConf{SkipDefaultTransaction: true})
+
+	require.False(t, safe.SkipDefaultTransaction)
+	require.True(t, optimized.SkipDefaultTransaction)
+}
