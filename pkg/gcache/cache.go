@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -85,12 +84,12 @@ type Cache[V any] struct {
 	state *cacheState[V]
 
 	closeMu sync.Mutex
-	cleanup *runtime.Cleanup
 	janitor *janitor[V]
 }
 
 // New creates a typed cache. A non-positive shard count is normalized to one.
-// A zero default expiration means no expiration.
+// A zero default expiration means no expiration. When cleanupInterval is
+// positive, the caller must call Close when the cache is no longer needed.
 func New[V any](
 	defaultExpiration time.Duration,
 	cleanupInterval time.Duration,
@@ -105,7 +104,8 @@ func New[V any](
 }
 
 // NewWithMaxEntries creates a cache with an explicit upper bound. A
-// non-positive maxEntries value uses DefaultMaxEntries.
+// non-positive maxEntries value uses DefaultMaxEntries. When cleanupInterval is
+// positive, the caller must call Close when the cache is no longer needed.
 func NewWithMaxEntries[V any](
 	defaultExpiration time.Duration,
 	cleanupInterval time.Duration,
@@ -144,30 +144,45 @@ func NewWithMaxEntries[V any](
 			done:     make(chan struct{}),
 		}
 		go janitor.run()
-		cleanup := runtime.AddCleanup(cache, stopJanitor[V], janitor)
-		cache.cleanup = &cleanup
 		cache.janitor = janitor
 	}
 	return cache
 }
 
-// Close stops background expiration cleanup. It is safe to call repeatedly.
-func (cache *Cache[V]) Close() {
+// RequestClose asks background expiration cleanup to stop without waiting.
+// It is safe to call from an eviction callback.
+func (cache *Cache[V]) RequestClose() {
 	if cache == nil {
 		return
 	}
 
 	cache.closeMu.Lock()
-	cleanup := cache.cleanup
 	janitor := cache.janitor
-	cache.cleanup = nil
-	cache.janitor = nil
 	cache.closeMu.Unlock()
-	if cleanup != nil {
-		cleanup.Stop()
-		stopJanitor(janitor)
+	requestStopJanitor(janitor)
+}
+
+// Close stops background expiration cleanup and waits for it to finish. It is
+// safe to call repeatedly. Eviction callbacks must use RequestClose instead.
+func (cache *Cache[V]) Close() {
+	if cache == nil {
+		return
 	}
-	runtime.KeepAlive(cache)
+
+	cache.RequestClose()
+	cache.closeMu.Lock()
+	janitor := cache.janitor
+	cache.closeMu.Unlock()
+	if janitor == nil {
+		return
+	}
+	<-janitor.done
+
+	cache.closeMu.Lock()
+	if cache.janitor == janitor {
+		cache.janitor = nil
+	}
+	cache.closeMu.Unlock()
 }
 
 // Set stores a value, replacing an existing value.
@@ -184,7 +199,6 @@ func (cache *Cache[V]) Set(key string, value V, expiration time.Duration) {
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
 	}
-	runtime.KeepAlive(cache)
 }
 
 // Add stores a value only when the key is absent or expired.
@@ -206,7 +220,6 @@ func (cache *Cache[V]) Add(key string, value V, expiration time.Duration) error 
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
 	}
-	runtime.KeepAlive(cache)
 	return nil
 }
 
@@ -221,7 +234,6 @@ func (cache *Cache[V]) Replace(key string, value V, expiration time.Duration) er
 	}
 	target.items[key] = cache.item(value, expiration)
 	target.mu.Unlock()
-	runtime.KeepAlive(cache)
 	return nil
 }
 
@@ -251,7 +263,6 @@ func (cache *Cache[V]) GetWithExpiration(key string) (V, time.Time, bool) {
 			cache.state.entryCount.Add(-1)
 			target.mu.Unlock()
 			cache.notifyEvicted(key, item.Value)
-			runtime.KeepAlive(cache)
 			var zero V
 			return zero, time.Time{}, false
 		}
@@ -261,7 +272,6 @@ func (cache *Cache[V]) GetWithExpiration(key string) (V, time.Time, bool) {
 			return zero, time.Time{}, false
 		}
 	}
-	runtime.KeepAlive(cache)
 	if item.Expiration == 0 {
 		return item.Value, time.Time{}, true
 	}
@@ -296,7 +306,6 @@ func (cache *Cache[V]) Update(
 	item.Value = next
 	target.items[key] = item
 	target.mu.Unlock()
-	runtime.KeepAlive(cache)
 	return next, nil
 }
 
@@ -313,13 +322,11 @@ func (cache *Cache[V]) Delete(key string) {
 	if found {
 		cache.notifyEvicted(key, item.Value)
 	}
-	runtime.KeepAlive(cache)
 }
 
 // DeleteExpired removes all expired values and invokes the eviction callback.
 func (cache *Cache[V]) DeleteExpired() {
 	deleteExpired(cache.state)
-	runtime.KeepAlive(cache)
 }
 
 // OnEvicted sets the callback used for explicit and expiration-driven deletes.
@@ -327,7 +334,6 @@ func (cache *Cache[V]) OnEvicted(callback func(string, V)) {
 	cache.state.evictionMu.Lock()
 	cache.state.onEvicted = callback
 	cache.state.evictionMu.Unlock()
-	runtime.KeepAlive(cache)
 }
 
 // Items returns a snapshot containing only current values.
@@ -344,7 +350,6 @@ func (cache *Cache[V]) Items() map[string]Item[V] {
 		}
 		target.mu.RUnlock()
 	}
-	runtime.KeepAlive(cache)
 	return items
 }
 
@@ -362,7 +367,6 @@ func (cache *Cache[V]) Len() int {
 		}
 		target.mu.RUnlock()
 	}
-	runtime.KeepAlive(cache)
 	return count
 }
 
@@ -376,7 +380,6 @@ func (cache *Cache[V]) Flush() {
 		cache.state.entryCount.Add(-int64(removed))
 		target.mu.Unlock()
 	}
-	runtime.KeepAlive(cache)
 }
 
 // Save writes a snapshot to writer using encoding/gob.
@@ -385,7 +388,6 @@ func (cache *Cache[V]) Save(writer io.Writer) error {
 		return errors.New("gcache: save writer is required")
 	}
 	err := gob.NewEncoder(writer).Encode(cache.Items())
-	runtime.KeepAlive(cache)
 	return err
 }
 
@@ -469,7 +471,6 @@ func (cache *Cache[V]) LoadWithLimit(reader io.Reader, maxBytes int64) error {
 		}
 		target.mu.Unlock()
 	}
-	runtime.KeepAlive(cache)
 	return nil
 }
 
@@ -586,50 +587,81 @@ func (janitor *janitor[V]) run() {
 	for {
 		select {
 		case <-ticker.C:
-			deleteExpired(janitor.state)
+			janitor.deleteExpired()
 		case <-janitor.stop:
 			return
 		}
 	}
 }
 
-func stopJanitor[V any](janitor *janitor[V]) {
+func (janitor *janitor[V]) deleteExpired() {
+	now := time.Now().UnixNano()
+	for index := range janitor.state.shards {
+		select {
+		case <-janitor.stop:
+			return
+		default:
+		}
+		evicted := deleteExpiredFromShard(
+			janitor.state,
+			&janitor.state.shards[index],
+			now,
+		)
+		notifyEvicted(janitor.state, evicted)
+	}
+}
+
+func requestStopJanitor[V any](janitor *janitor[V]) {
 	if janitor == nil {
 		return
 	}
 	janitor.stopOnce.Do(func() {
 		close(janitor.stop)
 	})
-	<-janitor.done
 }
 
 func deleteExpired[V any](state *cacheState[V]) {
 	now := time.Now().UnixNano()
 	for index := range state.shards {
-		target := &state.shards[index]
-		var evicted map[string]V
-		target.mu.Lock()
-		for key, item := range target.items {
-			if item.expiredAt(now) {
-				if evicted == nil {
-					evicted = make(map[string]V)
-				}
-				evicted[key] = item.Value
-				delete(target.items, key)
-				state.entryCount.Add(-1)
-			}
-		}
-		target.mu.Unlock()
+		evicted := deleteExpiredFromShard(state, &state.shards[index], now)
+		notifyEvicted(state, evicted)
+	}
+}
 
-		state.evictionMu.RLock()
-		callback := state.onEvicted
-		state.evictionMu.RUnlock()
-		if callback != nil {
-			for key, value := range evicted {
-				callback(key, value)
+func notifyEvicted[V any](state *cacheState[V], evicted map[string]V) {
+	if len(evicted) == 0 {
+		return
+	}
+	state.evictionMu.RLock()
+	callback := state.onEvicted
+	state.evictionMu.RUnlock()
+	if callback == nil {
+		return
+	}
+	for key, value := range evicted {
+		callback(key, value)
+	}
+}
+
+func deleteExpiredFromShard[V any](
+	state *cacheState[V],
+	target *shard[V],
+	now int64,
+) map[string]V {
+	var evicted map[string]V
+	target.mu.Lock()
+	for key, item := range target.items {
+		if item.expiredAt(now) {
+			if evicted == nil {
+				evicted = make(map[string]V)
 			}
+			evicted[key] = item.Value
+			delete(target.items, key)
+			state.entryCount.Add(-1)
 		}
 	}
+	target.mu.Unlock()
+	return evicted
 }
 
 func randomSeed() uint32 {

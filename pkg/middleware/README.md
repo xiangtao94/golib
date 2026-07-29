@@ -11,8 +11,9 @@ if err != nil {
     return err
 }
 
-engine.Use(middleware.Recovery(nil, nil))
 engine.Use(middleware.RequestID())
+engine.Use(middleware.GzipMiddleware())
+engine.Use(middleware.Recovery(nil, nil))
 engine.Use(cors)
 engine.Use(middleware.RateLimitMiddleware(middleware.RateLimiterConfig{
     Rate:       100,
@@ -20,8 +21,11 @@ engine.Use(middleware.RateLimitMiddleware(middleware.RateLimiterConfig{
     TTL:        10 * time.Minute,
     MaxEntries: 50_000,
 }))
-engine.Use(middleware.GzipMiddleware())
 ```
+
+`GzipMiddleware` 应注册在 `Recovery` 外层，这样 panic 响应可先由 Recovery
+生成 500，再由 gzip 完整编码。中间件自身也会在顺序配置错误时保住 500
+状态，但无法替外层 Recovery 补写自定义错误正文。
 
 Access log 默认不捕获 body。正文日志只有在 `MaxReqBodyLen`/`MaxRespBodyLen` 为正且配置 `BodySanitizer` 时启用。Authorization、Cookie、Proxy-Authorization、X-Api-Key 永不记录。
 

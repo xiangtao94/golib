@@ -5,9 +5,16 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 
 	"github.com/gin-gonic/gin"
 )
+
+var gzipWriterPool = sync.Pool{
+	New: func() any {
+		return gzip.NewWriter(io.Discard)
+	},
+}
 
 func GzipMiddleware() gin.HandlerFunc {
 	return func(ctx *gin.Context) {
@@ -23,7 +30,16 @@ func GzipMiddleware() gin.HandlerFunc {
 			requestMethod:  ctx.Request.Method,
 		}
 		ctx.Writer = writer
-		defer writer.close()
+		defer func() {
+			if recovered := recover(); recovered != nil {
+				if !writer.wroteHeader {
+					writer.status = http.StatusInternalServerError
+				}
+				writer.close()
+				panic(recovered)
+			}
+			writer.close()
+		}()
 		ctx.Next()
 	}
 }
@@ -94,12 +110,15 @@ func (writer *gzipResponseWriter) decideCompression() {
 	contentType := strings.ToLower(writer.Header().Get("Content-Type"))
 	noBodyStatus := writer.status < 200 || writer.status == http.StatusNoContent || writer.status == http.StatusNotModified
 	if writer.requestMethod == http.MethodHead || noBodyStatus || strings.HasPrefix(contentType, "text/event-stream") {
-		writer.Header().Del("Content-Encoding")
+		return
+	}
+	if writer.Header().Get("Content-Encoding") != "" {
 		return
 	}
 	writer.Header().Del("Content-Length")
 	writer.Header().Set("Content-Encoding", "gzip")
-	writer.gzipWriter = gzip.NewWriter(writer.ResponseWriter)
+	writer.gzipWriter = gzipWriterPool.Get().(*gzip.Writer)
+	writer.gzipWriter.Reset(writer.ResponseWriter)
 	writer.compressed = true
 }
 
@@ -108,7 +127,11 @@ func (writer *gzipResponseWriter) close() {
 		writer.WriteHeaderNow()
 	}
 	if writer.gzipWriter != nil {
-		_ = writer.gzipWriter.Close()
+		gzipWriter := writer.gzipWriter
+		writer.gzipWriter = nil
+		_ = gzipWriter.Close()
+		gzipWriter.Reset(io.Discard)
+		gzipWriterPool.Put(gzipWriter)
 	}
 }
 

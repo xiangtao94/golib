@@ -343,13 +343,13 @@ func TestCacheCloseIsIdempotent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cache := New[string](time.Minute, time.Hour, 1)
 		janitor := cache.janitor
-		if cache.cleanup == nil || janitor == nil {
-			t.Fatal("New() did not install cleanup ownership")
+		if janitor == nil {
+			t.Fatal("New() did not start expiration cleanup")
 		}
 		cache.Close()
 		cache.Close()
-		if cache.cleanup != nil || cache.janitor != nil {
-			t.Fatal("Close() retained cleanup ownership")
+		if cache.janitor != nil {
+			t.Fatal("Close() retained janitor ownership")
 		}
 		select {
 		case <-janitor.done:
@@ -357,6 +357,86 @@ func TestCacheCloseIsIdempotent(t *testing.T) {
 			t.Fatal("Close() returned before janitor stopped")
 		}
 	})
+}
+
+func TestJanitorEvictionCallbackMayRequestClose(t *testing.T) {
+	cache := New[string](time.Nanosecond, time.Millisecond, 1)
+	janitor := cache.janitor
+	callbackStarted := make(chan struct{})
+	callbackReturned := make(chan struct{})
+	cache.OnEvicted(func(_ string, _ string) {
+		close(callbackStarted)
+		cache.RequestClose()
+		close(callbackReturned)
+	})
+	cache.Set("expired", "value", DefaultExpiration)
+
+	select {
+	case <-callbackStarted:
+	case <-time.After(time.Second):
+		t.Fatal("janitor did not invoke eviction callback")
+	}
+	select {
+	case <-callbackReturned:
+	case <-time.After(time.Second):
+		t.Fatal("eviction callback deadlocked while requesting cache close")
+	}
+	select {
+	case <-janitor.done:
+	case <-time.After(time.Second):
+		t.Fatal("janitor did not stop after close request")
+	}
+	cache.Close()
+	if cache.janitor != nil {
+		t.Fatal("Close() retained a stopped janitor")
+	}
+}
+
+func TestCacheCloseWaitsForRunningEvictionCallback(t *testing.T) {
+	cache := New[string](time.Nanosecond, time.Millisecond, 1)
+	callbackStarted := make(chan struct{})
+	releaseCallback := make(chan struct{})
+	cache.OnEvicted(func(_ string, _ string) {
+		close(callbackStarted)
+		<-releaseCallback
+	})
+	cache.Set("expired", "value", DefaultExpiration)
+
+	select {
+	case <-callbackStarted:
+	case <-time.After(time.Second):
+		t.Fatal("janitor did not invoke eviction callback")
+	}
+
+	closeReturned := make(chan struct{})
+	go func() {
+		cache.Close()
+		close(closeReturned)
+	}()
+	select {
+	case <-closeReturned:
+		t.Fatal("Close() returned while an eviction callback was still running")
+	case <-time.After(10 * time.Millisecond):
+	}
+
+	close(releaseCallback)
+	select {
+	case <-closeReturned:
+	case <-time.After(time.Second):
+		t.Fatal("Close() did not return after the eviction callback completed")
+	}
+}
+
+func BenchmarkEvictionCallbackDispatch(b *testing.B) {
+	state := &cacheState[int]{
+		onEvicted: func(string, int) {},
+	}
+	evicted := map[string]int{"key": 42}
+
+	b.ReportAllocs()
+	for b.Loop() {
+		notifyEvicted(state, evicted)
+	}
 }
 
 func TestDjb33UsesEveryKeyByte(t *testing.T) {

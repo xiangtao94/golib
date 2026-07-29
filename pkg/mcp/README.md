@@ -18,6 +18,7 @@ import (
 
 func main() {
 	handler := ginmcp.NewHandler("example", "1.0.0")
+	defer handler.Close()
 	handler.Server.AddTool(
 		&officialmcp.Tool{
 			Name:        "hello",
@@ -73,11 +74,16 @@ handler := ginmcp.NewHandler(
 	ginmcp.WithStreamableHTTPOptions(&officialmcp.StreamableHTTPOptions{
 		SessionTimeout: 30 * time.Minute,
 	}),
+	ginmcp.WithMaxRequestBodyBytes(2 << 20),
+	ginmcp.WithMaxActiveSessions(512),
 )
 ```
 
 服务在配置路径注册 `POST`、`GET` 和 `DELETE`，具体状态码、会话和流式行为由官方
-Streamable HTTP transport 实现。
+Streamable HTTP transport 实现。状态会话默认在空闲 30 分钟后关闭，请求体默认上限为
+4 MiB，同时最多保留 1,024 个活跃状态会话。只有在其他生命周期 owner 能确保关闭全部会话时，才应显式配置
+`WithUnlimitedSessionLifetime()`。服务退出时调用 `Handler.Close()` 主动关闭仍在线的会话；
+关闭后 handler 不再接受新的状态会话。
 
 官方 SDK 没有旧实现的“会话级动态工具”和“按会话 ID 广播任意通知”抽象。本封装不模拟这些
 非标准能力；需要服务端到客户端交互时，应通过官方 `ServerSession` API 和 MCP 标准消息实现。

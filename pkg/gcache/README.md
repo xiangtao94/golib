@@ -26,8 +26,9 @@ next, err := counts.Update("requests", func(current int) (int, error) {
 })
 ```
 
-清理间隔大于零时会启动过期项 janitor。正常生命周期中应调用 `Close`；
-Go 1.26 的 `runtime.AddCleanup` 仅作为遗漏关闭时的兜底。
+清理间隔大于零时会启动过期项 janitor，调用方必须在生命周期结束时调用
+`Close`。淘汰回调与清理任务同步执行；回调需要停止当前 cache 时调用非阻塞的
+`RequestClose`，不要在回调内调用等待 janitor 结束的 `Close`。
 
 `Load` 在解码前限制快照字节数，并拒绝条目数超过目标缓存容量的快照，
 避免恢复过程绕过运行时容量预算。默认字节上限按容量估算，最小 1 MiB、
