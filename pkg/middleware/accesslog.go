@@ -169,9 +169,12 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 			return
 		}
 
+		captureEnabled := zlog.AccessEnabled(c.Request.Context())
 		var requestCapture *boundedCapture
 		var requestLog string
-		if conf.MaxReqBodyLen > 0 && conf.RequestBodySanitizer != nil {
+		if captureEnabled &&
+			conf.MaxReqBodyLen > 0 &&
+			conf.RequestBodySanitizer != nil {
 			if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodDelete {
 				query := []byte(c.Request.URL.Query().Encode())
 				capture := newBoundedCapture(conf.MaxReqBodyLen)
@@ -187,7 +190,9 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		}
 
 		var responseCapture *boundedCapture
-		if conf.MaxRespBodyLen > 0 && conf.ResponseBodySanitizer != nil {
+		if captureEnabled &&
+			conf.MaxRespBodyLen > 0 &&
+			conf.ResponseBodySanitizer != nil {
 			responseCapture = newBoundedCapture(conf.MaxRespBodyLen)
 			c.Writer = &customRespWriter{
 				ResponseWriter: c.Writer,
@@ -197,6 +202,9 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 
 		c.Next()
 
+		if !zlog.AccessEnabled(c.Request.Context()) {
+			return
+		}
 		if requestCapture != nil {
 			requestLog = sanitizeCapturedBody(
 				conf.RequestBodySanitizer,

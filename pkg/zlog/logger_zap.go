@@ -21,6 +21,33 @@ var (
 
 const maxCachedCallerSkip = 16
 
+func levelEnabled(ctx context.Context, level zapcore.Level) bool {
+	if noLog(ctx) {
+		return false
+	}
+	return NewLoggerWithSkip(1).Core().Enabled(level)
+}
+
+// DebugEnabled reports whether debug work should be performed for ctx.
+func DebugEnabled(ctx context.Context) bool {
+	return levelEnabled(ctx, zap.DebugLevel)
+}
+
+// InfoEnabled reports whether info work should be performed for ctx.
+func InfoEnabled(ctx context.Context) bool {
+	return levelEnabled(ctx, zap.InfoLevel)
+}
+
+// WarnEnabled reports whether warning work should be performed for ctx.
+func WarnEnabled(ctx context.Context) bool {
+	return levelEnabled(ctx, zap.WarnLevel)
+}
+
+// ErrorEnabled reports whether error work should be performed for ctx.
+func ErrorEnabled(ctx context.Context) bool {
+	return levelEnabled(ctx, zap.ErrorLevel)
+}
+
 // 通用 Logger 工厂，根据 skip 构造 Logger 实例, 定制化skip实例
 func NewLoggerWithSkip(skip int) *zap.Logger {
 	if skip >= 0 && skip <= maxCachedCallerSkip {

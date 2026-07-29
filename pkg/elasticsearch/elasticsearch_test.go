@@ -17,6 +17,18 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
+type trackingReadCloser struct {
+	reader io.Reader
+	reads  int
+}
+
+func (body *trackingReadCloser) Read(data []byte) (int, error) {
+	body.reads++
+	return body.reader.Read(data)
+}
+
+func (body *trackingReadCloser) Close() error { return nil }
+
 func TestElasticLoggerLogRoundTripHandlesNilRequestAndResponse(t *testing.T) {
 	logger := &elasticLogger{}
 	transportErr := errors.New("transport failed")
@@ -57,6 +69,28 @@ func TestElasticsearchBodyLoggingIsOffByDefault(t *testing.T) {
 
 	require.Nil(t, request)
 	require.Nil(t, response)
+}
+
+func TestElasticLoggerDoesNotCaptureBodyForNoLogContext(t *testing.T) {
+	logger := newLogger(-1, 4)
+	request := httptest.NewRequest(http.MethodGet, "https://localhost:9200/index/_search", nil).
+		WithContext(zlog.WithNoLog(context.Background()))
+	body := &trackingReadCloser{reader: strings.NewReader("response")}
+	response := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       body,
+	}
+
+	require.NoError(t, logger.LogRoundTrip(
+		request,
+		response,
+		nil,
+		time.Now(),
+		time.Millisecond,
+	))
+
+	require.Zero(t, body.reads)
+	require.Same(t, body, response.Body)
 }
 
 func TestDocumentInsertSplitsBulkRequestsByDocumentCount(t *testing.T) {

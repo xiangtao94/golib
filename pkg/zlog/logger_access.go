@@ -35,15 +35,23 @@ func GetAccessLogger() *zap.Logger {
 }
 
 func zapAccessLogger(ctx context.Context) (*zap.Logger, bool) {
-	logger := GetAccessLogger()
-	if !logger.Core().Enabled(zap.InfoLevel) {
+	if !AccessEnabled(ctx) {
 		return nil, false
 	}
+	logger := GetAccessLogger()
 	logger = LoggerWithContext(logger, ctx)
 	if uri := GetRequestURI(ctx); uri != "" {
 		logger = logger.With(String("uri", uri))
 	}
 	return logger, true
+}
+
+// AccessEnabled reports whether access-log work should be performed for ctx.
+func AccessEnabled(ctx context.Context) bool {
+	if noLog(ctx) {
+		return false
+	}
+	return GetAccessLogger().Core().Enabled(zap.InfoLevel)
 }
 
 func AccessInfo(ctx context.Context, fields ...zap.Field) {

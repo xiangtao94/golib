@@ -288,6 +288,13 @@ func logResponse(service string) resty.ResponseMiddleware {
 			return nil
 		}
 		request := response.Request
+		if response.CascadeError != nil {
+			if !zlog.ErrorEnabled(request.Context()) {
+				return nil
+			}
+		} else if !zlog.InfoEnabled(request.Context()) {
+			return nil
+		}
 		fields := []zap.Field{
 			zlog.String("service", service),
 			zlog.String("method", request.Method),

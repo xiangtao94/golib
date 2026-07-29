@@ -175,6 +175,34 @@ func TestRequestMiddlewarePropagatesRequestID(t *testing.T) {
 	require.Equal(t, "request-123", requestID)
 }
 
+func TestResponseLoggingDoesNotAllocateForNoLogContext(t *testing.T) {
+	_, err := zlog.InitLog(zlog.LogConfig{
+		Level:  "info",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, zlog.CloseLogger()) })
+
+	client := resty.New()
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	request := client.R().SetContext(zlog.WithNoLog(context.Background()))
+	request.Method = http.MethodGet
+	request.URL = "https://service.internal/path?token=secret"
+	request.StartTime = time.Now()
+	result := &resty.Response{
+		Request:     request,
+		RawResponse: &http.Response{StatusCode: http.StatusOK},
+	}
+	middleware := logResponse("service")
+	require.NoError(t, middleware(client, result))
+
+	allocations := testing.AllocsPerRun(1_000, func() {
+		require.NoError(t, middleware(client, result))
+	})
+
+	require.Zero(t, allocations)
+}
+
 func TestRequestMiddlewareRejectsFullHTTPURLByDefault(t *testing.T) {
 	var attempts atomic.Int32
 	transport := roundTripFunc(func(request *http.Request) (*http.Response, error) {

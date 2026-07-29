@@ -215,6 +215,13 @@ func (e *elasticLogger) LogRoundTrip(request *http.Request, response *http.Respo
 	if request == nil {
 		return nil
 	}
+	if err != nil {
+		if !zlog.ErrorEnabled(request.Context()) {
+			return nil
+		}
+	} else if !zlog.InfoEnabled(request.Context()) {
+		return nil
+	}
 
 	fields := []zlog.Field{}
 

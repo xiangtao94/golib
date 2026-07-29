@@ -2,12 +2,15 @@ package middleware
 
 import (
 	"io"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+
+	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 func TestDefaultAccessLoggerConfigDoesNotCaptureBodies(t *testing.T) {
@@ -55,4 +58,30 @@ func TestGetHeaderNeverReturnsSensitiveHeaders(t *testing.T) {
 	headers := getHeader(ctx, []string{"Authorization", "Cookie", "X-Trace-ID"})
 
 	require.Equal(t, "X-Trace-Id=[trace-123]", headers)
+}
+
+func TestAccessLogSkipsBodySanitizationWhenLoggingIsDisabled(t *testing.T) {
+	_, err := zlog.InitLog(zlog.LogConfig{
+		Level:  "info",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, zlog.CloseLogger()) })
+
+	sanitized := false
+	engine := gin.New()
+	engine.Use(AccessLog(AccessLoggerConfig{
+		MaxRespBodyLen: 16,
+		ResponseBodySanitizer: func(_ string, body []byte) string {
+			sanitized = true
+			return string(body)
+		},
+	}))
+	engine.GET("/", func(ctx *gin.Context) {
+		ctx.String(http.StatusOK, "response")
+	})
+
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.False(t, sanitized)
 }

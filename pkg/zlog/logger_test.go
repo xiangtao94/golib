@@ -6,7 +6,9 @@ import (
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
 	"go.uber.org/zap/zapcore"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestAppendLogFileTail(t *testing.T) {
@@ -112,6 +114,24 @@ func TestDisabledSugaredAndAccessLoggersDoNotAllocateContextFields(t *testing.T)
 
 	require.Zero(t, debugAllocations)
 	require.Zero(t, accessAllocations)
+}
+
+func TestAccessInfoHonorsNoLogContext(t *testing.T) {
+	core, observed := observer.New(zapcore.InfoLevel)
+
+	loggerLifecycleMu.Lock()
+	previous := accessLogger
+	accessLogger = zap.New(core)
+	loggerLifecycleMu.Unlock()
+	t.Cleanup(func() {
+		loggerLifecycleMu.Lock()
+		accessLogger = previous
+		loggerLifecycleMu.Unlock()
+	})
+
+	AccessInfo(WithNoLog(context.Background()), String("probe", "value"))
+
+	require.Zero(t, observed.Len())
 }
 
 func TestPanicLoggerStillPanicsWhenPanicLevelIsDisabled(t *testing.T) {
