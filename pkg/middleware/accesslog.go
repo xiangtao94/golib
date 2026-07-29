@@ -156,7 +156,11 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 
 	return func(c *gin.Context) {
 		path := c.Request.URL.Path
-		ensureRequestID(c)
+		requestID := zlog.GetRequestID(c.Request.Context())
+		if requestID == "" ||
+			c.Writer.Header().Get(zlog.HeaderRequestID) != requestID {
+			ensureRequestID(c)
+		}
 
 		if _, ok := skipPaths[path]; ok {
 			c.Next()
