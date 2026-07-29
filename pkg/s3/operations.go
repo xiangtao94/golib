@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"iter"
 	"mime"
 	"net/url"
 	"os"
@@ -301,57 +302,75 @@ func (client *Client) ObjectExists(
 	return true, nil
 }
 
-// ListObjects returns every matching object, following continuation tokens.
+// ListObjects lazily yields matching objects and follows continuation tokens
+// only as the caller advances the sequence. Errors are yielded once and end
+// the sequence.
 func (client *Client) ListObjects(
 	ctx context.Context,
 	bucket string,
 	options ListOptions,
-) ([]ObjectInfo, error) {
-	if err := validateBucket(bucket); err != nil {
-		return nil, err
-	}
-	if options.PageSize < 0 {
-		return nil, errors.New("s3: page size must not be negative")
-	}
+) iter.Seq2[ObjectInfo, error] {
+	return func(yield func(ObjectInfo, error) bool) {
+		if err := validateBucket(bucket); err != nil {
+			yield(ObjectInfo{}, err)
+			return
+		}
+		if options.PageSize < 0 {
+			yield(ObjectInfo{}, errors.New("s3: page size must not be negative"))
+			return
+		}
 
-	input := &awss3.ListObjectsV2Input{
-		Bucket: new(bucket),
-		Prefix: new(options.Prefix),
-	}
-	if !options.Recursive {
-		input.Delimiter = new("/")
-	}
-	if options.PageSize > 0 {
-		input.MaxKeys = new(options.PageSize)
-	}
+		input := &awss3.ListObjectsV2Input{
+			Bucket: new(bucket),
+			Prefix: new(options.Prefix),
+		}
+		if !options.Recursive {
+			input.Delimiter = new("/")
+		}
+		if options.PageSize > 0 {
+			input.MaxKeys = new(options.PageSize)
+		}
 
-	paginator := awss3.NewListObjectsV2Paginator(client.api, input)
-	var objects []ObjectInfo
-	for paginator.HasMorePages() {
-		page, err := paginator.NextPage(ctx)
-		if err != nil {
-			return nil, wrapOperationError("list", bucket, options.Prefix, err)
+		paginator := awss3.NewListObjectsV2Paginator(client.api, input)
+		for paginator.HasMorePages() {
+			page, err := paginator.NextPage(ctx)
+			if err != nil {
+				yield(
+					ObjectInfo{},
+					wrapOperationError("list", bucket, options.Prefix, err),
+				)
+				return
+			}
+			for _, object := range objectsFromPage(page) {
+				if !yield(object, nil) {
+					return
+				}
+			}
 		}
-		for _, object := range page.Contents {
-			objects = append(objects, ObjectInfo{
-				Key:          aws.ToString(object.Key),
-				Size:         aws.ToInt64(object.Size),
-				LastModified: aws.ToTime(object.LastModified),
-				ETag:         trimETag(aws.ToString(object.ETag)),
-				StorageClass: string(object.StorageClass),
-			})
-		}
-		for _, prefix := range page.CommonPrefixes {
-			objects = append(objects, ObjectInfo{
-				Key:      aws.ToString(prefix.Prefix),
-				IsPrefix: true,
-			})
-		}
+	}
+}
+
+func objectsFromPage(page *awss3.ListObjectsV2Output) []ObjectInfo {
+	objects := make([]ObjectInfo, 0, len(page.Contents)+len(page.CommonPrefixes))
+	for _, object := range page.Contents {
+		objects = append(objects, ObjectInfo{
+			Key:          aws.ToString(object.Key),
+			Size:         aws.ToInt64(object.Size),
+			LastModified: aws.ToTime(object.LastModified),
+			ETag:         trimETag(aws.ToString(object.ETag)),
+			StorageClass: string(object.StorageClass),
+		})
+	}
+	for _, prefix := range page.CommonPrefixes {
+		objects = append(objects, ObjectInfo{
+			Key:      aws.ToString(prefix.Prefix),
+			IsPrefix: true,
+		})
 	}
 	slices.SortFunc(objects, func(left, right ObjectInfo) int {
 		return strings.Compare(left.Key, right.Key)
 	})
-	return objects, nil
+	return objects
 }
 
 // CopyObject copies an object within one S3 service without downloading it.

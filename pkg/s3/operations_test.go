@@ -233,13 +233,16 @@ func TestListObjectsFollowsContinuationTokensAndPreservesPrefixes(t *testing.T) 
 	defer server.Close()
 
 	client := newTestClient(t, server.URL)
-	objects, err := client.ListObjects(
+	var objects []ObjectInfo
+	for object, err := range client.ListObjects(
 		context.Background(),
 		"test-bucket",
 		ListOptions{Prefix: "reports/"},
-	)
-	if err != nil {
-		t.Fatalf("ListObjects() error = %v", err)
+	) {
+		if err != nil {
+			t.Fatalf("ListObjects() error = %v", err)
+		}
+		objects = append(objects, object)
 	}
 	if calls.Load() != 2 {
 		t.Fatalf("request calls = %d, want 2", calls.Load())
@@ -255,6 +258,62 @@ func TestListObjectsFollowsContinuationTokensAndPreservesPrefixes(t *testing.T) 
 	}
 	if objects[2].Key != "reports/z.txt" || objects[2].Size != 9 {
 		t.Fatalf("objects[2] = %+v", objects[2])
+	}
+}
+
+func TestListObjectsStopsFetchingWhenCallerBreaks(t *testing.T) {
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		call := calls.Add(1)
+		w.Header().Set("Content-Type", "application/xml")
+		if call > 1 {
+			t.Fatal("iterator fetched a page after caller stopped")
+		}
+		_, _ = io.WriteString(w, `<?xml version="1.0" encoding="UTF-8"?>
+<ListBucketResult xmlns="http://s3.amazonaws.com/doc/2006-03-01/">
+  <Name>test-bucket</Name>
+  <KeyCount>1</KeyCount>
+  <MaxKeys>1</MaxKeys>
+  <IsTruncated>true</IsTruncated>
+  <NextContinuationToken>next-page</NextContinuationToken>
+  <Contents><Key>first.txt</Key><Size>1</Size></Contents>
+</ListBucketResult>`)
+	}))
+	defer server.Close()
+
+	client := newTestClient(t, server.URL)
+	for object, err := range client.ListObjects(
+		context.Background(),
+		"test-bucket",
+		ListOptions{PageSize: 1},
+	) {
+		if err != nil {
+			t.Fatalf("ListObjects() error = %v", err)
+		}
+		if object.Key != "first.txt" {
+			t.Fatalf("object key = %q", object.Key)
+		}
+		break
+	}
+	if calls.Load() != 1 {
+		t.Fatalf("request calls = %d, want 1", calls.Load())
+	}
+}
+
+func TestListObjectsYieldsValidationErrorWithoutRequest(t *testing.T) {
+	client := &Client{}
+	var errorsSeen []error
+
+	for _, err := range client.ListObjects(
+		context.Background(),
+		"",
+		ListOptions{},
+	) {
+		errorsSeen = append(errorsSeen, err)
+	}
+
+	if len(errorsSeen) != 1 || errorsSeen[0] == nil {
+		t.Fatalf("validation errors = %v", errorsSeen)
 	}
 }
 

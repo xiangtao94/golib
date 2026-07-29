@@ -71,6 +71,17 @@ if err != nil {
 }
 defer object.Body.Close()
 
+for object, err := range client.ListObjects(
+    ctx,
+    "documents",
+    s3.ListOptions{Prefix: "reports/"},
+) {
+    if err != nil {
+        return err
+    }
+    fmt.Println(object.Key)
+}
+
 downloadURL, err := client.PresignGetObject(
     ctx,
     "documents",
@@ -91,6 +102,7 @@ downloadURL, err := client.PresignGetObject(
 
 `PutObject` 使用 AWS multipart uploader；大对象会自动分片。`GetFile` 先写入目标目录
 中的临时文件，完整写入并同步成功后才替换目标路径，失败不会留下半文件。
+`ListObjects` 返回惰性迭代器，调用方停止遍历后不会继续请求后续分页。
 
 ## 错误语义
 
