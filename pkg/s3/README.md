@@ -19,6 +19,11 @@ client, err := s3.NewClient(ctx, s3.Config{
     AccessKeyID:     accessKey,
     SecretAccessKey: secretKey,
     UsePathStyle:    true,
+    // 以下为可选的上传资源上限。
+    SinglePutThreshold:            64 << 20,
+    UploadPartSize:                8 << 20,
+    UploadPartConcurrency:         1,
+    MaxConcurrentMultipartUploads: 2,
 })
 if err != nil {
     return err
@@ -100,8 +105,10 @@ downloadURL, err := client.PresignGetObject(
 - `CopyObject` / `DeleteObject`
 - `PresignGetObject` / `PresignPutObject`
 
-`PutObject` 使用 AWS multipart uploader；大对象会自动分片。`GetFile` 先写入目标目录
-中的临时文件，完整写入并同步成功后才替换目标路径，失败不会留下半文件。
+`PutObject` 对大小已知且不超过 `SinglePutThreshold` 的对象使用流式单 PUT；更大的
+对象和大小未知的流使用 multipart uploader。分片大小、单对象分片并发数和 client
+级 multipart 并发数均有显式上限，等待并发槽时响应 context 取消。`GetFile` 先写入
+目标目录中的临时文件，完整写入并同步成功后才替换目标路径，失败不会留下半文件。
 `ListObjects` 返回惰性迭代器，调用方停止遍历后不会继续请求后续分页。
 
 ## 错误语义

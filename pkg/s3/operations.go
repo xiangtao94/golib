@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/aws/aws-sdk-go-v2/aws"
+	"github.com/aws/aws-sdk-go-v2/aws/signer/v4"
 	"github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager"
 	transfertypes "github.com/aws/aws-sdk-go-v2/feature/s3/transfermanager/types"
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 	"github.com/aws/aws-sdk-go-v2/service/s3/types"
+	"github.com/aws/smithy-go/middleware"
 )
 
 // Encryption is an S3-compatible server-side encryption mode.
@@ -149,6 +151,38 @@ func (client *Client) PutObject(
 		input.SSEKMSKeyID = new(normalized.KMSKeyID)
 	}
 
+	if size >= 0 && size <= client.config.SinglePutThreshold {
+		putOptions := []func(*awss3.Options){}
+		if _, seekable := body.(io.Seeker); !seekable {
+			putOptions = append(putOptions, useUnsignedPayload)
+		}
+		result, err := client.api.PutObject(ctx, &awss3.PutObjectInput{
+			Bucket:               input.Bucket,
+			Key:                  input.Key,
+			Body:                 input.Body,
+			ContentLength:        input.ContentLength,
+			ContentType:          input.ContentType,
+			Metadata:             input.Metadata,
+			ServerSideEncryption: types.ServerSideEncryption(input.ServerSideEncryption),
+			SSEKMSKeyId:          input.SSEKMSKeyID,
+		}, putOptions...)
+		if err != nil {
+			return UploadResult{}, wrapOperationError("put", bucket, key, err)
+		}
+		return UploadResult{
+			Key:       key,
+			Size:      size,
+			ETag:      trimETag(aws.ToString(result.ETag)),
+			VersionID: aws.ToString(result.VersionId),
+		}, nil
+	}
+
+	select {
+	case client.multipartSlots <- struct{}{}:
+		defer func() { <-client.multipartSlots }()
+	case <-ctx.Done():
+		return UploadResult{}, ctx.Err()
+	}
 	result, err := client.transfers.UploadObject(ctx, input)
 	if err != nil {
 		return UploadResult{}, wrapOperationError("put", bucket, key, err)
@@ -159,6 +193,18 @@ func (client *Client) PutObject(
 		ETag:      trimETag(aws.ToString(result.ETag)),
 		VersionID: aws.ToString(result.VersionID),
 	}, nil
+}
+
+func useUnsignedPayload(options *awss3.Options) {
+	options.APIOptions = append(options.APIOptions, func(stack *middleware.Stack) error {
+		if err := v4.RemoveContentSHA256HeaderMiddleware(stack); err != nil {
+			return err
+		}
+		if err := v4.RemoveComputePayloadSHA256Middleware(stack); err != nil {
+			return err
+		}
+		return v4.AddUnsignedPayloadMiddleware(stack)
+	})
 }
 
 // PutFile uploads a local file.

@@ -42,6 +42,25 @@ func TestNewClientRejectsIncompleteStaticCredentials(t *testing.T) {
 	}
 }
 
+func TestNormalizeConfigBoundsUploadConcurrency(t *testing.T) {
+	config := normalizeConfig(Config{})
+
+	if config.SinglePutThreshold != defaultSinglePutThreshold ||
+		config.UploadPartSize != defaultUploadPartSize ||
+		config.UploadPartConcurrency != defaultUploadPartConcurrency ||
+		config.MaxConcurrentMultipartUploads != defaultConcurrentMultipart {
+		t.Fatalf("normalizeConfig() = %+v, want upload defaults", config)
+	}
+}
+
+func TestValidateConfigRejectsUploadPartsBelowProviderMinimum(t *testing.T) {
+	err := validateConfig(Config{UploadPartSize: minUploadPartSize - 1})
+
+	if err == nil || !strings.Contains(err.Error(), "uploadPartSize") {
+		t.Fatalf("validateConfig() error = %v, want uploadPartSize error", err)
+	}
+}
+
 func TestNewClientRequiresAResolvedRegion(t *testing.T) {
 	t.Setenv("AWS_REGION", "")
 	t.Setenv("AWS_DEFAULT_REGION", "")

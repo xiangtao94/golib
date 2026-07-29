@@ -20,7 +20,15 @@ import (
 	awss3 "github.com/aws/aws-sdk-go-v2/service/s3"
 )
 
-const maxPresignExpiry = 7 * 24 * time.Hour
+const (
+	maxPresignExpiry             = 7 * 24 * time.Hour
+	defaultSinglePutThreshold    = int64(64 << 20)
+	defaultUploadPartSize        = int64(8 << 20)
+	defaultUploadPartConcurrency = 1
+	defaultConcurrentMultipart   = 2
+	minUploadPartSize            = int64(5 << 20)
+	maxSinglePutSize             = int64(5 << 30)
+)
 
 var baseHTTPTransport = http.DefaultTransport.(*http.Transport).Clone()
 
@@ -37,6 +45,11 @@ type Config struct {
 	UsePathStyle    bool        `yaml:"usePathStyle"`
 	AllowHTTP       bool        `yaml:"allowHTTP"`
 	TLSConfig       *tls.Config `yaml:"-"`
+
+	SinglePutThreshold            int64 `yaml:"singlePutThreshold"`
+	UploadPartSize                int64 `yaml:"uploadPartSize"`
+	UploadPartConcurrency         int   `yaml:"uploadPartConcurrency"`
+	MaxConcurrentMultipartUploads int   `yaml:"maxConcurrentMultipartUploads"`
 }
 
 // ObjectInfo contains provider-neutral object metadata.
@@ -54,11 +67,12 @@ type ObjectInfo struct {
 
 // Client owns an AWS SDK S3 client and its HTTP connection pool.
 type Client struct {
-	api       *awss3.Client
-	presigner *awss3.PresignClient
-	transfers *transfermanager.Client
-	transport *http.Transport
-	config    Config
+	api            *awss3.Client
+	presigner      *awss3.PresignClient
+	transfers      *transfermanager.Client
+	transport      *http.Transport
+	config         Config
+	multipartSlots chan struct{}
 }
 
 // NewClient creates a client for AWS S3 or an S3-compatible endpoint.
@@ -69,6 +83,7 @@ func NewClient(ctx context.Context, config Config) (*Client, error) {
 	if err := validateConfig(config); err != nil {
 		return nil, err
 	}
+	config = normalizeConfig(config)
 
 	transport := baseHTTPTransport.Clone()
 	tlsConfig := config.TLSConfig
@@ -124,9 +139,15 @@ func NewClient(ctx context.Context, config Config) (*Client, error) {
 	return &Client{
 		api:       api,
 		presigner: awss3.NewPresignClient(api),
-		transfers: transfermanager.New(api),
-		transport: transport,
-		config:    config,
+		transfers: transfermanager.New(api, func(options *transfermanager.Options) {
+			options.PartSizeBytes = config.UploadPartSize
+			options.MultipartUploadThreshold = config.UploadPartSize
+			options.Concurrency = config.UploadPartConcurrency
+			options.RequestChecksumCalculation = aws.RequestChecksumCalculationWhenRequired
+		}),
+		transport:      transport,
+		config:         config,
+		multipartSlots: make(chan struct{}, config.MaxConcurrentMultipartUploads),
 	}, nil
 }
 
@@ -138,6 +159,19 @@ func validateConfig(config Config) error {
 	}
 	if config.SessionToken != "" && !hasAccessKey {
 		return errors.New("s3: sessionToken requires static credentials")
+	}
+	if config.SinglePutThreshold < 0 || config.SinglePutThreshold > maxSinglePutSize {
+		return fmt.Errorf("s3: singlePutThreshold must be between 0 and %d", maxSinglePutSize)
+	}
+	if config.UploadPartSize < 0 ||
+		(config.UploadPartSize > 0 && config.UploadPartSize < minUploadPartSize) {
+		return fmt.Errorf("s3: uploadPartSize must be zero or at least %d", minUploadPartSize)
+	}
+	if config.UploadPartConcurrency < 0 {
+		return errors.New("s3: uploadPartConcurrency must not be negative")
+	}
+	if config.MaxConcurrentMultipartUploads < 0 {
+		return errors.New("s3: maxConcurrentMultipartUploads must not be negative")
 	}
 	if config.Endpoint == "" {
 		return nil
@@ -157,6 +191,22 @@ func validateConfig(config Config) error {
 		return errors.New("s3: HTTPS is required; explicitly set allowHTTP for an HTTP endpoint")
 	}
 	return nil
+}
+
+func normalizeConfig(config Config) Config {
+	if config.SinglePutThreshold == 0 {
+		config.SinglePutThreshold = defaultSinglePutThreshold
+	}
+	if config.UploadPartSize == 0 {
+		config.UploadPartSize = defaultUploadPartSize
+	}
+	if config.UploadPartConcurrency == 0 {
+		config.UploadPartConcurrency = defaultUploadPartConcurrency
+	}
+	if config.MaxConcurrentMultipartUploads == 0 {
+		config.MaxConcurrentMultipartUploads = defaultConcurrentMultipart
+	}
+	return config
 }
 
 // Close releases idle HTTP connections owned by the client.

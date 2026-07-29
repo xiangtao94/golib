@@ -71,6 +71,85 @@ func TestPutObjectMapsGenericOptionsAndResult(t *testing.T) {
 	}
 }
 
+func TestPutObjectStreamsKnownModerateObjectAsSingleRequest(t *testing.T) {
+	const objectSize = int64(20 << 20)
+	var calls atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		calls.Add(1)
+		if request.Method != http.MethodPut {
+			t.Errorf("method = %s, want PUT", request.Method)
+		}
+		query := request.URL.Query()
+		if query.Has("uploads") || query.Has("uploadId") || query.Has("partNumber") {
+			t.Errorf("query = %q, want no multipart parameters", request.URL.RawQuery)
+		}
+		written, err := io.Copy(io.Discard, request.Body)
+		if err != nil {
+			t.Errorf("read request body: %v", err)
+		}
+		if written != objectSize {
+			t.Errorf("request body size = %d, want %d", written, objectSize)
+		}
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	client, err := NewClient(context.Background(), Config{
+		Endpoint:                      server.URL,
+		Region:                        "us-east-1",
+		AccessKeyID:                   "access-key",
+		SecretAccessKey:               "secret-key",
+		UsePathStyle:                  true,
+		AllowHTTP:                     true,
+		SinglePutThreshold:            32 << 20,
+		UploadPartSize:                5 << 20,
+		UploadPartConcurrency:         1,
+		MaxConcurrentMultipartUploads: 1,
+	})
+	if err != nil {
+		t.Fatalf("NewClient() error = %v", err)
+	}
+	t.Cleanup(client.Close)
+
+	_, err = client.PutObject(
+		context.Background(),
+		"test-bucket",
+		"large.bin",
+		io.LimitReader(zeroReader{}, objectSize),
+		objectSize,
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("PutObject() error = %v", err)
+	}
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("request calls = %d, want 1", got)
+	}
+}
+
+func TestPutObjectHonorsContextWhileWaitingForMultipartSlot(t *testing.T) {
+	client := &Client{
+		config:         Config{SinglePutThreshold: 1},
+		multipartSlots: make(chan struct{}, 1),
+	}
+	client.multipartSlots <- struct{}{}
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := client.PutObject(
+		ctx,
+		"test-bucket",
+		"large.bin",
+		strings.NewReader("large"),
+		5,
+		nil,
+	)
+
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("PutObject() error = %v, want context.Canceled", err)
+	}
+}
+
 func TestGetObjectReturnsBodyAndMetadataFromOneRequest(t *testing.T) {
 	var calls atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
@@ -491,4 +570,11 @@ func newTestClient(t *testing.T, endpoint string) *Client {
 	}
 	t.Cleanup(client.Close)
 	return client
+}
+
+type zeroReader struct{}
+
+func (zeroReader) Read(buffer []byte) (int, error) {
+	clear(buffer)
+	return len(buffer), nil
 }
