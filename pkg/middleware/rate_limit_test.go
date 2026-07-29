@@ -31,6 +31,26 @@ func TestRateLimiterExpiresAndBoundsEntries(t *testing.T) {
 	require.Contains(t, limiter.entries, "fourth")
 }
 
+func TestRateLimiterRefreshesEntryBeforeConstantTimeEviction(t *testing.T) {
+	limiter := NewRateLimiter(RateLimiterConfig{
+		Rate:       rate.Inf,
+		Burst:      1,
+		TTL:        time.Hour,
+		MaxEntries: 2,
+	})
+	start := time.Now()
+
+	require.True(t, limiter.allow("first", start))
+	require.True(t, limiter.allow("second", start.Add(time.Millisecond)))
+	require.True(t, limiter.allow("first", start.Add(2*time.Millisecond)))
+	require.True(t, limiter.allow("third", start.Add(3*time.Millisecond)))
+
+	require.Contains(t, limiter.entries, "first")
+	require.NotContains(t, limiter.entries, "second")
+	require.Contains(t, limiter.entries, "third")
+	require.Equal(t, 2, limiter.order.Len())
+}
+
 func TestRateLimitMiddlewareUsesTheSharedErrorContract(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

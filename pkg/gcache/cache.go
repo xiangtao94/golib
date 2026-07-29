@@ -20,6 +20,8 @@ const (
 	NoExpiration time.Duration = -1
 	// DefaultExpiration uses the duration configured when the cache was created.
 	DefaultExpiration time.Duration = 0
+	// DefaultMaxEntries bounds the number of values retained by a cache.
+	DefaultMaxEntries = 100_000
 )
 
 var (
@@ -43,8 +45,9 @@ func (item Item[V]) expiredAt(now int64) bool {
 }
 
 type shard[V any] struct {
-	mu    sync.RWMutex
-	items map[string]Item[V]
+	mu       sync.RWMutex
+	items    map[string]Item[V]
+	capacity int
 }
 
 type cacheState[V any] struct {
@@ -82,11 +85,33 @@ func New[V any](
 	cleanupInterval time.Duration,
 	shardCount int,
 ) *Cache[V] {
+	return NewWithMaxEntries[V](
+		defaultExpiration,
+		cleanupInterval,
+		shardCount,
+		DefaultMaxEntries,
+	)
+}
+
+// NewWithMaxEntries creates a cache with an explicit upper bound. A
+// non-positive maxEntries value uses DefaultMaxEntries.
+func NewWithMaxEntries[V any](
+	defaultExpiration time.Duration,
+	cleanupInterval time.Duration,
+	shardCount int,
+	maxEntries int,
+) *Cache[V] {
 	if defaultExpiration == DefaultExpiration {
 		defaultExpiration = NoExpiration
 	}
+	if maxEntries <= 0 {
+		maxEntries = DefaultMaxEntries
+	}
 	if shardCount <= 0 {
 		shardCount = 1
+	}
+	if shardCount > maxEntries {
+		shardCount = maxEntries
 	}
 
 	state := &cacheState[V]{
@@ -96,6 +121,10 @@ func New[V any](
 	}
 	for index := range state.shards {
 		state.shards[index].items = make(map[string]Item[V])
+		state.shards[index].capacity = maxEntries / shardCount
+		if index < maxEntries%shardCount {
+			state.shards[index].capacity++
+		}
 	}
 
 	cache := &Cache[V]{state: state}
@@ -137,8 +166,12 @@ func (cache *Cache[V]) Close() {
 func (cache *Cache[V]) Set(key string, value V, expiration time.Duration) {
 	target := cache.shard(key)
 	target.mu.Lock()
+	evictedKey, evictedValue, evicted := makeRoom(target, key)
 	target.items[key] = cache.item(value, expiration)
 	target.mu.Unlock()
+	if evicted {
+		cache.notifyEvicted(evictedKey, evictedValue)
+	}
 	runtime.KeepAlive(cache)
 }
 
@@ -151,8 +184,12 @@ func (cache *Cache[V]) Add(key string, value V, expiration time.Duration) error 
 		target.mu.Unlock()
 		return fmt.Errorf("%w: %q", ErrExists, key)
 	}
+	evictedKey, evictedValue, evicted := makeRoom(target, key)
 	target.items[key] = cache.item(value, expiration)
 	target.mu.Unlock()
+	if evicted {
+		cache.notifyEvicted(evictedKey, evictedValue)
+	}
 	runtime.KeepAlive(cache)
 	return nil
 }
@@ -185,12 +222,29 @@ func (cache *Cache[V]) GetWithExpiration(key string) (V, time.Time, bool) {
 	target.mu.RLock()
 	item, found := target.items[key]
 	target.mu.RUnlock()
-	runtime.KeepAlive(cache)
-
-	if !found || item.Expired() {
+	if !found {
 		var zero V
 		return zero, time.Time{}, false
 	}
+	now := time.Now().UnixNano()
+	if item.expiredAt(now) {
+		target.mu.Lock()
+		item, found = target.items[key]
+		if found && item.expiredAt(now) {
+			delete(target.items, key)
+			target.mu.Unlock()
+			cache.notifyEvicted(key, item.Value)
+			runtime.KeepAlive(cache)
+			var zero V
+			return zero, time.Time{}, false
+		}
+		target.mu.Unlock()
+		if !found {
+			var zero V
+			return zero, time.Time{}, false
+		}
+	}
+	runtime.KeepAlive(cache)
 	if item.Expiration == 0 {
 		return item.Value, time.Time{}, true
 	}
@@ -297,7 +351,7 @@ func (cache *Cache[V]) Flush() {
 	for index := range cache.state.shards {
 		target := &cache.state.shards[index]
 		target.mu.Lock()
-		clear(target.items)
+		target.items = make(map[string]Item[V])
 		target.mu.Unlock()
 	}
 	runtime.KeepAlive(cache)
@@ -356,7 +410,13 @@ func (cache *Cache[V]) Load(reader io.Reader) error {
 		target := cache.shard(key)
 		target.mu.Lock()
 		if current, found := target.items[key]; !found || current.expiredAt(now) {
+			evictedKey, evictedValue, evicted := makeRoom(target, key)
 			target.items[key] = item
+			target.mu.Unlock()
+			if evicted {
+				cache.notifyEvicted(evictedKey, evictedValue)
+			}
+			continue
 		}
 		target.mu.Unlock()
 	}
@@ -402,6 +462,18 @@ func (cache *Cache[V]) notifyEvicted(key string, value V) {
 	if callback != nil {
 		callback(key, value)
 	}
+}
+
+func makeRoom[V any](target *shard[V], key string) (string, V, bool) {
+	var zero V
+	if _, found := target.items[key]; found || len(target.items) < target.capacity {
+		return "", zero, false
+	}
+	for evictedKey, item := range target.items {
+		delete(target.items, evictedKey)
+		return evictedKey, item.Value, true
+	}
+	return "", zero, false
 }
 
 func (janitor *janitor[V]) run() {

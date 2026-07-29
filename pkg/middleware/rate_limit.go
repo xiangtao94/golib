@@ -1,6 +1,7 @@
 package middleware
 
 import (
+	"container/list"
 	"net"
 	"sync"
 	"time"
@@ -26,11 +27,13 @@ type RateLimiterConfig struct {
 type limiterEntry struct {
 	limiter  *rate.Limiter
 	lastSeen time.Time
+	element  *list.Element
 }
 
 type RateLimiter struct {
 	mu          sync.Mutex
 	entries     map[string]*limiterEntry
+	order       *list.List
 	rate        rate.Limit
 	burst       int
 	ttl         time.Duration
@@ -53,6 +56,7 @@ func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
 	}
 	return &RateLimiter{
 		entries:     make(map[string]*limiterEntry),
+		order:       list.New(),
 		rate:        config.Rate,
 		burst:       config.Burst,
 		ttl:         config.TTL,
@@ -72,35 +76,41 @@ func (limiter *RateLimiter) allow(key string, now time.Time) bool {
 	entry, exists := limiter.entries[key]
 	if !exists {
 		if len(limiter.entries) >= limiter.maxEntries {
-			limiter.evictOldest()
+			limiter.removeOldest()
 		}
-		entry = &limiterEntry{limiter: rate.NewLimiter(limiter.rate, limiter.burst)}
+		entry = &limiterEntry{
+			limiter: rate.NewLimiter(limiter.rate, limiter.burst),
+			element: limiter.order.PushBack(key),
+		}
 		limiter.entries[key] = entry
+	} else {
+		limiter.order.MoveToBack(entry.element)
 	}
 	entry.lastSeen = now
 	return entry.limiter.AllowN(now, 1)
 }
 
 func (limiter *RateLimiter) removeExpired(now time.Time) {
-	for key, entry := range limiter.entries {
-		if now.Sub(entry.lastSeen) >= limiter.ttl {
-			delete(limiter.entries, key)
+	for limiter.order.Len() > 0 {
+		oldest := limiter.order.Front()
+		key := oldest.Value.(string)
+		entry := limiter.entries[key]
+		if now.Sub(entry.lastSeen) < limiter.ttl {
+			return
 		}
+		limiter.removeElement(oldest)
 	}
 }
 
-func (limiter *RateLimiter) evictOldest() {
-	var oldestKey string
-	var oldestTime time.Time
-	for key, entry := range limiter.entries {
-		if oldestKey == "" || entry.lastSeen.Before(oldestTime) {
-			oldestKey = key
-			oldestTime = entry.lastSeen
-		}
+func (limiter *RateLimiter) removeOldest() {
+	if oldest := limiter.order.Front(); oldest != nil {
+		limiter.removeElement(oldest)
 	}
-	if oldestKey != "" {
-		delete(limiter.entries, oldestKey)
-	}
+}
+
+func (limiter *RateLimiter) removeElement(element *list.Element) {
+	delete(limiter.entries, element.Value.(string))
+	limiter.order.Remove(element)
 }
 
 // DirectClientIP keys by the TCP peer and does not trust forwarded headers.

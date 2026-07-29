@@ -97,6 +97,44 @@ func TestCacheExpirationAndJanitor(t *testing.T) {
 	})
 }
 
+func TestCacheGetDeletesExpiredValueWithoutJanitor(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		cache := New[string](NoExpiration, 0, 1)
+		evicted := make(chan string, 1)
+		cache.OnEvicted(func(key, _ string) {
+			evicted <- key
+		})
+		cache.Set("expired", "value", time.Second)
+
+		time.Sleep(2 * time.Second)
+		if _, found := cache.Get("expired"); found {
+			t.Fatal("Get() found an expired value")
+		}
+
+		target := cache.shard("expired")
+		target.mu.RLock()
+		_, retained := target.items["expired"]
+		target.mu.RUnlock()
+		if retained {
+			t.Fatal("Get() retained the expired value")
+		}
+		if key := <-evicted; key != "expired" {
+			t.Fatalf("evicted key = %q, want expired", key)
+		}
+	})
+}
+
+func TestCacheBoundsEntries(t *testing.T) {
+	cache := NewWithMaxEntries[int](NoExpiration, 0, 1, 2)
+	cache.Set("first", 1, DefaultExpiration)
+	cache.Set("second", 2, DefaultExpiration)
+	cache.Set("third", 3, DefaultExpiration)
+
+	if got := cache.Len(); got != 2 {
+		t.Fatalf("Len() = %d, want 2", got)
+	}
+}
+
 func TestCacheItemsAreSnapshotAndFlushClears(t *testing.T) {
 	cache := New[string](NoExpiration, 0, 3)
 	cache.Set("a", "one", DefaultExpiration)
@@ -110,9 +148,32 @@ func TestCacheItemsAreSnapshotAndFlushClears(t *testing.T) {
 	if cache.Len() != 1 {
 		t.Fatalf("Len() = %d, want 1", cache.Len())
 	}
+	target := cache.shard("a")
+	target.mu.RLock()
+	previousItems := target.items
+	target.mu.RUnlock()
 	cache.Flush()
 	if cache.Len() != 0 {
 		t.Fatalf("Len() after Flush = %d", cache.Len())
+	}
+	if len(previousItems) != 1 {
+		t.Fatal("Flush() cleared the old map instead of releasing its buckets")
+	}
+}
+
+func TestCacheLenDoesNotAllocateAFullSnapshot(t *testing.T) {
+	cache := New[int](NoExpiration, 0, 4)
+	for index := range 1_000 {
+		cache.Set(string(rune(index)), index, DefaultExpiration)
+	}
+
+	allocations := testing.AllocsPerRun(100, func() {
+		if got := cache.Len(); got != 1_000 {
+			t.Fatalf("Len() = %d, want 1000", got)
+		}
+	})
+	if allocations != 0 {
+		t.Fatalf("Len() allocations = %v, want 0", allocations)
 	}
 }
 

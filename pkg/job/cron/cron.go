@@ -39,6 +39,7 @@ type Entry struct {
 	Prev     time.Time
 	Job      Job
 	Spec     string
+	running  bool
 }
 
 func compareEntryTime(left, right *Entry) int {
@@ -207,7 +208,16 @@ func (c *Cron) nextWaitAndRunDue(ctx context.Context) time.Duration {
 		}
 		entry.Prev = entry.Next
 		entry.Next = entry.Schedule.Next(now)
+		if entry.running {
+			continue
+		}
+		entry.running = true
 		c.jobs.Go(func() {
+			defer func() {
+				c.mu.Lock()
+				entry.running = false
+				c.mu.Unlock()
+			}()
 			c.runWithRecovery(ctx, entry)
 		})
 	}
