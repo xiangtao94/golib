@@ -3,6 +3,7 @@ package gcache
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -146,6 +147,29 @@ func TestCacheUsesFullGlobalCapacityAcrossShards(t *testing.T) {
 
 	if got := cache.Len(); got != capacity {
 		t.Fatalf("Len() = %d, want full global capacity %d", got, capacity)
+	}
+}
+
+func TestCacheGlobalCapacityRemainsBoundedUnderConcurrentWrites(t *testing.T) {
+	const capacity = 100
+	cache := NewWithMaxEntries[int](NoExpiration, 0, 16, capacity)
+
+	var writers sync.WaitGroup
+	for writer := range 32 {
+		writers.Go(func() {
+			for item := range 1_000 {
+				key := fmt.Sprintf("%d:%d", writer, item)
+				cache.Set(key, item, DefaultExpiration)
+			}
+		})
+	}
+	writers.Wait()
+
+	if got := cache.Len(); got > capacity {
+		t.Fatalf("Len() = %d, want at most %d", got, capacity)
+	}
+	if got := cache.state.entryCount.Load(); got > capacity {
+		t.Fatalf("retained entry count = %d, want at most %d", got, capacity)
 	}
 }
 

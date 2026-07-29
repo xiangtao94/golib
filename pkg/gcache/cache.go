@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,15 +46,16 @@ func (item Item[V]) expiredAt(now int64) bool {
 }
 
 type shard[V any] struct {
-	mu       sync.RWMutex
-	items    map[string]Item[V]
-	capacity int
+	mu    sync.RWMutex
+	items map[string]Item[V]
 }
 
 type cacheState[V any] struct {
 	defaultExpiration time.Duration
 	seed              uint32
 	shards            []shard[V]
+	maxEntries        int64
+	entryCount        atomic.Int64
 
 	evictionMu sync.RWMutex
 	onEvicted  func(string, V)
@@ -118,13 +120,10 @@ func NewWithMaxEntries[V any](
 		defaultExpiration: defaultExpiration,
 		seed:              randomSeed(),
 		shards:            make([]shard[V], shardCount),
+		maxEntries:        int64(maxEntries),
 	}
 	for index := range state.shards {
 		state.shards[index].items = make(map[string]Item[V])
-		state.shards[index].capacity = maxEntries / shardCount
-		if index < maxEntries%shardCount {
-			state.shards[index].capacity++
-		}
 	}
 
 	cache := &Cache[V]{state: state}
@@ -166,8 +165,12 @@ func (cache *Cache[V]) Close() {
 func (cache *Cache[V]) Set(key string, value V, expiration time.Duration) {
 	target := cache.shard(key)
 	target.mu.Lock()
-	evictedKey, evictedValue, evicted := makeRoom(target, key)
-	target.items[key] = cache.item(value, expiration)
+	evictedKey, evictedValue, evicted := storeItem(
+		cache.state,
+		target,
+		key,
+		cache.item(value, expiration),
+	)
 	target.mu.Unlock()
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
@@ -184,8 +187,12 @@ func (cache *Cache[V]) Add(key string, value V, expiration time.Duration) error 
 		target.mu.Unlock()
 		return fmt.Errorf("%w: %q", ErrExists, key)
 	}
-	evictedKey, evictedValue, evicted := makeRoom(target, key)
-	target.items[key] = cache.item(value, expiration)
+	evictedKey, evictedValue, evicted := storeItem(
+		cache.state,
+		target,
+		key,
+		cache.item(value, expiration),
+	)
 	target.mu.Unlock()
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
@@ -232,6 +239,7 @@ func (cache *Cache[V]) GetWithExpiration(key string) (V, time.Time, bool) {
 		item, found = target.items[key]
 		if found && item.expiredAt(now) {
 			delete(target.items, key)
+			cache.state.entryCount.Add(-1)
 			target.mu.Unlock()
 			cache.notifyEvicted(key, item.Value)
 			runtime.KeepAlive(cache)
@@ -289,6 +297,9 @@ func (cache *Cache[V]) Delete(key string) {
 	target.mu.Lock()
 	item, found := target.items[key]
 	delete(target.items, key)
+	if found {
+		cache.state.entryCount.Add(-1)
+	}
 	target.mu.Unlock()
 	if found {
 		cache.notifyEvicted(key, item.Value)
@@ -351,7 +362,9 @@ func (cache *Cache[V]) Flush() {
 	for index := range cache.state.shards {
 		target := &cache.state.shards[index]
 		target.mu.Lock()
+		removed := len(target.items)
 		target.items = make(map[string]Item[V])
+		cache.state.entryCount.Add(-int64(removed))
 		target.mu.Unlock()
 	}
 	runtime.KeepAlive(cache)
@@ -410,8 +423,12 @@ func (cache *Cache[V]) Load(reader io.Reader) error {
 		target := cache.shard(key)
 		target.mu.Lock()
 		if current, found := target.items[key]; !found || current.expiredAt(now) {
-			evictedKey, evictedValue, evicted := makeRoom(target, key)
-			target.items[key] = item
+			evictedKey, evictedValue, evicted := storeItem(
+				cache.state,
+				target,
+				key,
+				item,
+			)
 			target.mu.Unlock()
 			if evicted {
 				cache.notifyEvicted(evictedKey, evictedValue)
@@ -464,15 +481,24 @@ func (cache *Cache[V]) notifyEvicted(key string, value V) {
 	}
 }
 
-func makeRoom[V any](target *shard[V], key string) (string, V, bool) {
+func storeItem[V any](
+	state *cacheState[V],
+	target *shard[V],
+	key string,
+	item Item[V],
+) (string, V, bool) {
 	var zero V
-	if _, found := target.items[key]; found || len(target.items) < target.capacity {
+	_, found := target.items[key]
+	target.items[key] = item
+	if found || state.entryCount.Add(1) <= state.maxEntries {
 		return "", zero, false
 	}
 	for evictedKey, item := range target.items {
 		delete(target.items, evictedKey)
+		state.entryCount.Add(-1)
 		return evictedKey, item.Value, true
 	}
+	state.entryCount.Add(-1)
 	return "", zero, false
 }
 
@@ -513,6 +539,7 @@ func deleteExpired[V any](state *cacheState[V]) {
 				}
 				evicted[key] = item.Value
 				delete(target.items, key)
+				state.entryCount.Add(-1)
 			}
 		}
 		target.mu.Unlock()
