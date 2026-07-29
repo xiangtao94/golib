@@ -56,9 +56,15 @@ func LoggerWithContext(baseLogger *zap.Logger, ctx context.Context) *zap.Logger 
 	if ctx == nil || baseLogger == nil {
 		return baseLogger
 	}
-	fields := []Field{String("requestId", GetRequestID(ctx))}
-	if contextual, ok := ctx.Value(fieldsContextKey{}).([]Field); ok {
-		fields = append(fields, contextual...)
+	requestID := GetRequestID(ctx)
+	contextual, _ := ctx.Value(fieldsContextKey{}).([]Field)
+	if requestID == "" && len(contextual) == 0 {
+		return baseLogger
 	}
+	fields := make([]Field, 0, 1+len(contextual))
+	if requestID != "" {
+		fields = append(fields, String("requestId", requestID))
+	}
+	fields = append(fields, contextual...)
 	return baseLogger.With(fields...)
 }

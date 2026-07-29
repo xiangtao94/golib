@@ -47,3 +47,9 @@ func TestLoggerWithContextIncludesAdditionalFields(t *testing.T) {
 		"span_id":   "span-123",
 	}, observed.All()[0].ContextMap())
 }
+
+func TestLoggerWithContextReusesBaseWhenContextHasNoLogFields(t *testing.T) {
+	logger := zap.NewNop()
+
+	require.Same(t, logger, LoggerWithContext(logger, context.Background()))
+}

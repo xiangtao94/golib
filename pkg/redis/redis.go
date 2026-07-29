@@ -126,11 +126,11 @@ func (r *redisLogger) DialHook(hook redis.DialHook) redis.DialHook {
 
 func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
+		if !r.logger.Core().Enabled(zap.DebugLevel) {
+			return hook(ctx, cmd)
+		}
 		start := time.Now()
 		err := hook(ctx, cmd)
-		if !r.logger.Core().Enabled(zap.DebugLevel) {
-			return err
-		}
 		msg := "redis"
 		if err != nil {
 			msg = err.Error()
@@ -147,11 +147,11 @@ func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 
 func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
+		if !r.logger.Core().Enabled(zap.DebugLevel) {
+			return hook(ctx, cmds)
+		}
 		start := time.Now()
 		err := hook(ctx, cmds)
-		if !r.logger.Core().Enabled(zap.DebugLevel) {
-			return err
-		}
 		commandNames := make([]string, 0, len(cmds))
 		argumentCount := 0
 		for _, command := range cmds {
