@@ -36,10 +36,6 @@ type Entry struct {
 	RetryInterval time.Duration
 }
 
-func New() *Cycle {
-	return &Cycle{}
-}
-
 type FuncJob func(context.Context) error
 
 func (f FuncJob) Run(ctx context.Context) error {
@@ -60,27 +56,19 @@ func (c *Cycle) AddAfterRun(afterRun func(context.Context)) *Cycle {
 	return c
 }
 
-func (c *Cycle) AddFunc(interval time.Duration, cmd func(context.Context) error) {
-	c.AddFuncWithConfig(interval, cmd, 1, 0, time.Second)
-}
-
-func (c *Cycle) AddFuncWithConfig(
-	interval time.Duration,
-	cmd func(context.Context) error,
-	concurrency, maxRetry int,
-	retryInterval time.Duration,
-) {
-	if interval <= 0 {
-		interval = time.Second
+// Add registers an entry. Jobs cannot be added after Start.
+func (c *Cycle) Add(entry Entry) {
+	if entry.Interval <= 0 {
+		entry.Interval = time.Second
 	}
-	if concurrency <= 0 {
-		concurrency = 1
+	if entry.Concurrency <= 0 {
+		entry.Concurrency = 1
 	}
-	if maxRetry < 0 {
-		maxRetry = 0
+	if entry.MaxRetry < 0 {
+		entry.MaxRetry = 0
 	}
-	if retryInterval <= 0 {
-		retryInterval = time.Second
+	if entry.RetryInterval <= 0 {
+		entry.RetryInterval = time.Second
 	}
 
 	c.mu.Lock()
@@ -88,13 +76,7 @@ func (c *Cycle) AddFuncWithConfig(
 	if c.running {
 		panic("cycle: jobs cannot be added after Start")
 	}
-	c.entries = append(c.entries, &Entry{
-		Interval:      interval,
-		Job:           FuncJob(cmd),
-		Concurrency:   concurrency,
-		MaxRetry:      maxRetry,
-		RetryInterval: retryInterval,
-	})
+	c.entries = append(c.entries, &entry)
 }
 
 // Start begins all registered workers. Calling Start while already running is

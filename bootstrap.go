@@ -65,7 +65,7 @@ func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
 // 5. Recovery
 func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
 	return func(engine *gin.Engine) error {
-		middleware.RegistryRecovery(engine, handler)
+		engine.Use(middleware.Recovery(zlog.NewLoggerWithSkip(1), handler))
 		return nil
 	}
 }
@@ -73,8 +73,15 @@ func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
 // 6. Prometheus
 func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
 	return func(engine *gin.Engine) error {
-		_, err := middleware.RegistryMetrics(engine, cs...)
-		return err
+		metrics, err := middleware.NewMetrics(middleware.MetricsConfig{
+			AppName:    env.GetAppName(),
+			Collectors: cs,
+		})
+		if err != nil {
+			return err
+		}
+		middleware.RegisterMetrics(engine, metrics)
+		return nil
 	}
 }
 
@@ -223,10 +230,4 @@ func normalizeServerError(err error) error {
 		return nil
 	}
 	return err
-}
-
-// StartHTTPServer is a convenience wrapper. The caller owns signal handling
-// and cancels ctx to initiate graceful shutdown.
-func StartHTTPServer(ctx context.Context, engine *gin.Engine, port int) error {
-	return NewHTTPServer(engine, DefaultHTTPServerConfig(port)).Run(ctx)
 }

@@ -46,22 +46,15 @@ func TestCaptureBodyPrefixPreservesCompleteBody(t *testing.T) {
 }
 
 func TestElasticsearchBodyLoggingIsOffByDefault(t *testing.T) {
-	client := &ElasticsearchClient{}
-	ctx := client.appendContext(context.Background())
-
-	request, response := formatLogMsg(ctx, []byte("request"), []byte("response"))
+	logger := newLogger(0, 0)
+	request, response := formatLogMsg(
+		logLimits{request: logger.requestLimit, response: logger.responseLimit},
+		[]byte("request"),
+		[]byte("response"),
+	)
 
 	require.Nil(t, request)
 	require.Nil(t, response)
-}
-
-func TestAppendContextRejectsNilContext(t *testing.T) {
-	client := &ElasticsearchClient{}
-
-	require.PanicsWithValue(t, "elasticsearch: nil context", func() {
-		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
-		client.appendContext(nil)
-	})
 }
 
 func assertLogRoundTripDoesNotPanic(t *testing.T, logRoundTrip func() error) {

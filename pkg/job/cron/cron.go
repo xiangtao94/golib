@@ -2,8 +2,6 @@ package cron
 
 import (
 	"context"
-	"log"
-	"os"
 	"runtime/debug"
 	"slices"
 	"sync"
@@ -22,7 +20,6 @@ type Cron struct {
 	done      chan struct{}
 	wake      chan struct{}
 	jobs      sync.WaitGroup
-	ErrorLog  *log.Logger
 	location  *time.Location
 	beforeRun func(context.Context) bool
 	afterRun  func(context.Context)
@@ -57,17 +54,12 @@ func compareEntryTime(left, right *Entry) int {
 	return left.Next.Compare(right.Next)
 }
 
-func New() *Cron {
-	return NewWithLocation(time.Now().Location())
-}
-
-func NewWithLocation(location *time.Location) *Cron {
+func New(location *time.Location) *Cron {
 	if location == nil {
 		location = time.Local
 	}
 	return &Cron{
 		wake:     make(chan struct{}, 1),
-		ErrorLog: log.New(os.Stderr, "\n\n\u001B[31m", 0),
 		location: location,
 	}
 }
@@ -88,10 +80,6 @@ func (c *Cron) AddAfterRun(afterRun func(context.Context)) *Cron {
 	defer c.mu.Unlock()
 	c.afterRun = afterRun
 	return c
-}
-
-func (c *Cron) AddFunc(spec string, cmd func(context.Context) error) error {
-	return c.AddJob(spec, FuncJob(cmd))
 }
 
 func (c *Cron) AddJob(spec string, cmd Job) error {
@@ -284,14 +272,6 @@ func (c *Cron) entrySnapshotLocked() []*Entry {
 
 func (c *Cron) now() time.Time {
 	return time.Now().In(c.location)
-}
-
-func (c *Cron) logf(format string, args ...interface{}) {
-	if c.ErrorLog != nil {
-		c.ErrorLog.Printf(format, args...)
-		return
-	}
-	log.Printf(format, args...)
 }
 
 func stopTimer(timer *time.Timer) {

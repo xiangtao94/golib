@@ -9,7 +9,7 @@ import (
 )
 
 func TestReadinessStartsUnavailableAndCanTransition(t *testing.T) {
-	gate := New()
+	gate := &Gate{}
 
 	response := httptest.NewRecorder()
 	gate.ReadinessHandler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/ready", nil))
@@ -27,7 +27,7 @@ func TestReadinessStartsUnavailableAndCanTransition(t *testing.T) {
 }
 
 func TestLivenessDoesNotDependOnReadiness(t *testing.T) {
-	gate := New()
+	gate := &Gate{}
 	response := httptest.NewRecorder()
 
 	gate.LivenessHandler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/live", nil))

@@ -9,10 +9,10 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestRegistryRecoveryHandlesPanics(t *testing.T) {
+func TestRecoveryHandlesPanics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
-	RegistryRecovery(engine, nil)
+	engine.Use(Recovery(nil, nil))
 	engine.GET("/panic", func(*gin.Context) {
 		panic("boom")
 	})

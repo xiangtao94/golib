@@ -7,8 +7,8 @@ import (
 )
 
 func TestGORMKeepsDefaultWriteTransactionsUnlessExplicitlyDisabled(t *testing.T) {
-	safe := newGORMConfig(MysqlConf{})
-	optimized := newGORMConfig(MysqlConf{SkipDefaultTransaction: true})
+	safe := gormConfig(MysqlConf{}, newLogger())
+	optimized := gormConfig(MysqlConf{SkipDefaultTransaction: true}, newLogger())
 
 	require.False(t, safe.SkipDefaultTransaction)
 	require.True(t, optimized.SkipDefaultTransaction)

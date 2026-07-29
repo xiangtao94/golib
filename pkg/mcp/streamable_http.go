@@ -11,7 +11,7 @@ import (
 func (h *Handler) Register(r *gin.Engine) {
 	streamable := officialmcp.NewStreamableHTTPHandler(
 		func(*http.Request) *officialmcp.Server {
-			return h.server
+			return h.Server
 		},
 		&h.StreamableHTTPOpts,
 	)

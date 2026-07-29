@@ -11,7 +11,6 @@ import (
 	"github.com/prometheus/client_golang/prometheus/collectors"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 
-	"github.com/xiangtao94/golib/pkg/env"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
@@ -109,28 +108,13 @@ func (metrics *Metrics) Middleware() gin.HandlerFunc {
 	}
 }
 
-func (metrics *Metrics) Handler() http.Handler {
-	return promhttp.HandlerFor(metrics.registry, promhttp.HandlerOpts{})
-}
-
 func RegisterMetrics(engine *gin.Engine, metrics *Metrics) {
 	engine.Use(metrics.Middleware())
+	handler := promhttp.HandlerFor(metrics.registry, promhttp.HandlerOpts{})
 	engine.GET(metrics.path, func(ctx *gin.Context) {
 		ctx.Request = ctx.Request.WithContext(zlog.WithNoLog(ctx.Request.Context()))
-		metrics.Handler().ServeHTTP(ctx.Writer, ctx.Request)
+		handler.ServeHTTP(ctx.Writer, ctx.Request)
 	})
-}
-
-func RegistryMetrics(engine *gin.Engine, customCollectors ...prometheus.Collector) (*Metrics, error) {
-	metrics, err := NewMetrics(MetricsConfig{
-		AppName:    env.GetAppName(),
-		Collectors: customCollectors,
-	})
-	if err != nil {
-		return nil, err
-	}
-	RegisterMetrics(engine, metrics)
-	return metrics, nil
 }
 
 func getRequestSize(request *http.Request) float64 {

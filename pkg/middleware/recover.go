@@ -14,16 +14,15 @@ import (
 	"go.uber.org/zap"
 )
 
-func RegistryRecovery(engine *gin.Engine, handle gin.RecoveryFunc) {
+func Recovery(logger *zap.Logger, handle gin.RecoveryFunc) gin.HandlerFunc {
+	if logger == nil {
+		logger = zlog.NewLoggerWithSkip(1)
+	}
 	if handle == nil {
 		handle = func(c *gin.Context, err interface{}) {
 			c.AbortWithStatus(http.StatusInternalServerError)
 		}
 	}
-	engine.Use(CustomRecoveryWithZap(zlog.NewLoggerWithSkip(1), handle))
-}
-
-func CustomRecoveryWithZap(logger *zap.Logger, handle gin.RecoveryFunc) gin.HandlerFunc {
 	return func(c *gin.Context) {
 		defer func() {
 			if err := recover(); err != nil {

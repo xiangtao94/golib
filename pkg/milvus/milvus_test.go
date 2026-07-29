@@ -39,18 +39,6 @@ func TestValidateVectors(t *testing.T) {
 	}
 }
 
-func TestNewIndexByTypeDoesNotMutateParams(t *testing.T) {
-	params := map[string]string{"nlist": "1024"}
-
-	idx, err := NewIndexByType(milvusindex.IvfFlat, entity.L2, params)
-
-	require.NoError(t, err)
-	require.Equal(t, map[string]string{"nlist": "1024"}, params)
-	require.Equal(t, "1024", idx.Params()["nlist"])
-	require.Equal(t, string(milvusindex.IvfFlat), idx.Params()[milvusindex.IndexTypeKey])
-	require.Equal(t, string(entity.L2), idx.Params()[milvusindex.MetricTypeKey])
-}
-
 func TestMilvusClientRejectsInvalidInputBeforeCallingSDK(t *testing.T) {
 	client := &MilvusClient{}
 

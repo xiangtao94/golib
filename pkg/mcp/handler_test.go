@@ -29,7 +29,7 @@ func TestRegisterPassesHTTPContextToToolHandler(t *testing.T) {
 			Stateless:    true,
 		}),
 	)
-	handler.AddTool(
+	handler.Server.AddTool(
 		&officialmcp.Tool{
 			Name:        "context_value",
 			Description: "returns a value injected from the HTTP request",

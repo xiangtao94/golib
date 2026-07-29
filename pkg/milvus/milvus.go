@@ -32,8 +32,7 @@ type MilvusConf struct {
 
 // MilvusClient Milvus客户端封装
 type MilvusClient struct {
-	client *milvusclient.Client
-	config MilvusConf
+	Driver *milvusclient.Client
 }
 
 // SearchResult 搜索结果
@@ -58,8 +57,7 @@ func NewMilvusClient(config MilvusConf) (*MilvusClient, error) {
 	}
 
 	return &MilvusClient{
-		client: c,
-		config: config,
+		Driver: c,
 	}, nil
 }
 
@@ -125,12 +123,12 @@ func (mc *MilvusClient) CreateCollectionWithSchema(ctx context.Context, schema *
 }
 
 func (mc *MilvusClient) ensureCollection(ctx context.Context, expected *entity.Schema, shards int32) error {
-	exists, err := mc.client.HasCollection(ctx, milvusclient.NewHasCollectionOption(expected.CollectionName))
+	exists, err := mc.Driver.HasCollection(ctx, milvusclient.NewHasCollectionOption(expected.CollectionName))
 	if err != nil {
 		return fmt.Errorf("check collection %q existence: %w", expected.CollectionName, err)
 	}
 	if exists {
-		collection, describeErr := mc.client.DescribeCollection(
+		collection, describeErr := mc.Driver.DescribeCollection(
 			ctx,
 			milvusclient.NewDescribeCollectionOption(expected.CollectionName),
 		)
@@ -140,7 +138,7 @@ func (mc *MilvusClient) ensureCollection(ctx context.Context, expected *entity.S
 		return validateCollection(collection, expected, shards)
 	}
 
-	createErr := mc.client.CreateCollection(
+	createErr := mc.Driver.CreateCollection(
 		ctx,
 		milvusclient.NewCreateCollectionOption(expected.CollectionName, expected).WithShardNum(shards),
 	)
@@ -150,7 +148,7 @@ func (mc *MilvusClient) ensureCollection(ctx context.Context, expected *entity.S
 
 	// Another creator may win between HasCollection and CreateCollection.
 	// Re-describe and accept the race only when the resulting schema matches.
-	collection, describeErr := mc.client.DescribeCollection(
+	collection, describeErr := mc.Driver.DescribeCollection(
 		ctx,
 		milvusclient.NewDescribeCollectionOption(expected.CollectionName),
 	)
@@ -206,20 +204,6 @@ func validateCollection(actual *entity.Collection, expected *entity.Schema, shar
 	return nil
 }
 
-// DropCollection 删除集合
-func (mc *MilvusClient) DropCollection(ctx context.Context, collectionName string) error {
-	start := time.Now()
-
-	err := mc.client.DropCollection(ctx, milvusclient.NewDropCollectionOption(collectionName))
-	if err != nil {
-		zlog.Errorf(ctx, "failed to drop collection %s: %v", collectionName, err)
-		return fmt.Errorf("failed to drop collection: %w", err)
-	}
-
-	zlog.Infof(ctx, "collection %s dropped successfully, cost: %v", collectionName, time.Since(start))
-	return nil
-}
-
 // InsertVectors 插入向量数据
 func (mc *MilvusClient) InsertVectors(ctx context.Context, collectionName string, vectors [][]float32, extraFields ...column.Column) (column.Column, error) {
 	start := time.Now()
@@ -235,7 +219,7 @@ func (mc *MilvusClient) InsertVectors(ctx context.Context, collectionName string
 	// 添加额外字段
 	columns = append(columns, extraFields...)
 
-	result, err := mc.client.Insert(
+	result, err := mc.Driver.Insert(
 		ctx,
 		milvusclient.NewColumnBasedInsertOption(collectionName, columns...),
 	)
@@ -272,7 +256,7 @@ func (mc *MilvusClient) SearchVectors(ctx context.Context, collectionName string
 		vectors[i] = entity.FloatVector(vector)
 	}
 	option := buildSearchOption(collectionName, topK, vectors, options)
-	searchResult, err := mc.client.Search(ctx, option)
+	searchResult, err := mc.Driver.Search(ctx, option)
 	if err != nil {
 		zlog.Errorf(ctx, "failed to search vectors in collection %s: %v", collectionName, err)
 		return nil, fmt.Errorf("failed to search vectors: %w", err)
@@ -345,13 +329,15 @@ func buildSearchOption(collectionName string, topK int, vectors []entity.Vector,
 func (mc *MilvusClient) CreateIndex(ctx context.Context, collectionName, fieldName string, indexType milvusindex.IndexType, metricType entity.MetricType, params map[string]string) error {
 	start := time.Now()
 
-	idx, err := NewIndexByType(indexType, metricType, params)
-	if err != nil {
-		zlog.Errorf(ctx, "failed to create index config: %v", err)
-		return fmt.Errorf("failed to create index config: %w", err)
+	completeParams := maps.Clone(params)
+	if completeParams == nil {
+		completeParams = make(map[string]string, 2)
 	}
+	completeParams[milvusindex.IndexTypeKey] = string(indexType)
+	completeParams[milvusindex.MetricTypeKey] = string(metricType)
+	idx := milvusindex.NewGenericIndex("", completeParams)
 
-	task, err := mc.client.CreateIndex(
+	task, err := mc.Driver.CreateIndex(
 		ctx,
 		milvusclient.NewCreateIndexOption(collectionName, fieldName, idx),
 	)
@@ -373,7 +359,7 @@ func (mc *MilvusClient) CreateIndex(ctx context.Context, collectionName, fieldNa
 func (mc *MilvusClient) LoadCollection(ctx context.Context, collectionName string, async bool) error {
 	start := time.Now()
 
-	task, err := mc.client.LoadCollection(ctx, milvusclient.NewLoadCollectionOption(collectionName))
+	task, err := mc.Driver.LoadCollection(ctx, milvusclient.NewLoadCollectionOption(collectionName))
 	if err != nil {
 		zlog.Errorf(ctx, "failed to load collection %s: %v", collectionName, err)
 		return fmt.Errorf("failed to load collection: %w", err)
@@ -390,34 +376,6 @@ func (mc *MilvusClient) LoadCollection(ctx context.Context, collectionName strin
 	return nil
 }
 
-// ReleaseCollection 释放集合从内存
-func (mc *MilvusClient) ReleaseCollection(ctx context.Context, collectionName string) error {
-	start := time.Now()
-
-	err := mc.client.ReleaseCollection(ctx, milvusclient.NewReleaseCollectionOption(collectionName))
-	if err != nil {
-		zlog.Errorf(ctx, "failed to release collection %s: %v", collectionName, err)
-		return fmt.Errorf("failed to release collection: %w", err)
-	}
-
-	zlog.Infof(ctx, "collection %s released successfully, cost: %v", collectionName, time.Since(start))
-	return nil
-}
-
-// GetCollectionStatistics 获取集合统计信息
-func (mc *MilvusClient) GetCollectionStatistics(ctx context.Context, collectionName string) (map[string]string, error) {
-	start := time.Now()
-
-	stats, err := mc.client.GetCollectionStats(ctx, milvusclient.NewGetCollectionStatsOption(collectionName))
-	if err != nil {
-		zlog.Errorf(ctx, "failed to get collection statistics %s: %v", collectionName, err)
-		return nil, fmt.Errorf("failed to get collection statistics: %w", err)
-	}
-
-	zlog.Infof(ctx, "got collection statistics for %s, cost: %v", collectionName, time.Since(start))
-	return stats, nil
-}
-
 // DeleteByIds 根据ID删除数据
 func (mc *MilvusClient) DeleteByIds(ctx context.Context, collectionName string, ids []int64) error {
 	start := time.Now()
@@ -426,7 +384,7 @@ func (mc *MilvusClient) DeleteByIds(ctx context.Context, collectionName string, 
 		return nil
 	}
 
-	_, err := mc.client.Delete(
+	_, err := mc.Driver.Delete(
 		ctx,
 		milvusclient.NewDeleteOption(collectionName).WithInt64IDs("id", ids),
 	)
@@ -440,57 +398,11 @@ func (mc *MilvusClient) DeleteByIds(ctx context.Context, collectionName string, 
 	return nil
 }
 
-// DeleteByExpr 根据表达式删除数据
-func (mc *MilvusClient) DeleteByExpr(ctx context.Context, collectionName string, expr string) error {
-	start := time.Now()
-
-	_, err := mc.client.Delete(
-		ctx,
-		milvusclient.NewDeleteOption(collectionName).WithExpr(expr),
-	)
-	if err != nil {
-		zlog.Errorf(ctx, "failed to delete data from collection %s with expr %s: %v", collectionName, expr, err)
-		return fmt.Errorf("failed to delete data: %w", err)
-	}
-
-	zlog.Infof(ctx, "deleted data from collection %s with expr: %s, cost: %v",
-		collectionName, expr, time.Since(start))
-	return nil
-}
-
-// ListCollections 列出所有集合
-func (mc *MilvusClient) ListCollections(ctx context.Context) ([]string, error) {
-	start := time.Now()
-
-	collections, err := mc.client.ListCollections(ctx, milvusclient.NewListCollectionOption())
-	if err != nil {
-		zlog.Errorf(ctx, "failed to list collections: %v", err)
-		return nil, fmt.Errorf("failed to list collections: %w", err)
-	}
-
-	zlog.Infof(ctx, "listed %d collections, cost: %v", len(collections), time.Since(start))
-	return collections, nil
-}
-
-// DescribeCollection 获取集合详细信息
-func (mc *MilvusClient) DescribeCollection(ctx context.Context, collectionName string) (*entity.Collection, error) {
-	start := time.Now()
-
-	collection, err := mc.client.DescribeCollection(ctx, milvusclient.NewDescribeCollectionOption(collectionName))
-	if err != nil {
-		zlog.Errorf(ctx, "failed to describe collection %s: %v", collectionName, err)
-		return nil, fmt.Errorf("failed to describe collection: %w", err)
-	}
-
-	zlog.Infof(ctx, "described collection %s, cost: %v", collectionName, time.Since(start))
-	return collection, nil
-}
-
 // Flush 强制刷新集合数据到持久化存储
 func (mc *MilvusClient) Flush(ctx context.Context, collectionName string) error {
 	start := time.Now()
 
-	task, err := mc.client.Flush(ctx, milvusclient.NewFlushOption(collectionName))
+	task, err := mc.Driver.Flush(ctx, milvusclient.NewFlushOption(collectionName))
 	if err != nil {
 		zlog.Errorf(ctx, "failed to flush collections %v: %v", collectionName, err)
 		return fmt.Errorf("failed to flush collections: %w", err)
@@ -508,7 +420,7 @@ func (mc *MilvusClient) Flush(ctx context.Context, collectionName string) error 
 func (mc *MilvusClient) GetLoadingProgress(ctx context.Context, collectionName string) (int64, error) {
 	start := time.Now()
 
-	state, err := mc.client.GetLoadState(ctx, milvusclient.NewGetLoadStateOption(collectionName))
+	state, err := mc.Driver.GetLoadState(ctx, milvusclient.NewGetLoadStateOption(collectionName))
 	if err != nil {
 		zlog.Errorf(ctx, "failed to get loading progress for collection %s: %v", collectionName, err)
 		return 0, fmt.Errorf("failed to get loading progress: %w", err)
@@ -521,60 +433,4 @@ func (mc *MilvusClient) GetLoadingProgress(ctx context.Context, collectionName s
 	zlog.Infof(ctx, "got loading progress for collection %s: %d%%, cost: %v",
 		collectionName, progress, time.Since(start))
 	return progress, nil
-}
-
-// Query 查询数据
-func (mc *MilvusClient) Query(ctx context.Context, collectionName string, expr string, outputFields []string) ([]column.Column, error) {
-	start := time.Now()
-
-	result, err := mc.client.Query(
-		ctx,
-		milvusclient.NewQueryOption(collectionName).
-			WithFilter(expr).
-			WithOutputFields(outputFields...),
-	)
-	if err != nil {
-		zlog.Errorf(ctx, "failed to query data from collection %s: %v", collectionName, err)
-		return nil, fmt.Errorf("failed to query data: %w", err)
-	}
-
-	zlog.Infof(ctx, "queried data from collection %s with expr: %s, result count: %d, cost: %v",
-		collectionName, expr, result.ResultCount, time.Since(start))
-	return []column.Column(result.Fields), nil
-}
-
-// Close 关闭客户端连接
-func (mc *MilvusClient) Close() error {
-	if mc.client != nil {
-		return mc.client.Close(context.Background())
-	}
-	return nil
-}
-
-// CreateDefaultIndex 创建默认的IVF_FLAT索引
-func (mc *MilvusClient) CreateDefaultIndex(ctx context.Context, collectionName string) error {
-	params := map[string]string{
-		"nlist": "1024",
-	}
-	return mc.CreateIndex(ctx, collectionName, "vector", milvusindex.IvfFlat, entity.L2, params)
-}
-
-// CreateHNSWIndex 创建HNSW索引（推荐用于高精度搜索）
-func (mc *MilvusClient) CreateHNSWIndex(ctx context.Context, collectionName string, M int, efConstruction int) error {
-	params := map[string]string{
-		"M":              fmt.Sprintf("%d", M),
-		"efConstruction": fmt.Sprintf("%d", efConstruction),
-	}
-	return mc.CreateIndex(ctx, collectionName, "vector", milvusindex.HNSW, entity.L2, params)
-}
-
-// NewIndexByType 根据索引类型创建索引对象
-func NewIndexByType(indexType milvusindex.IndexType, metricType entity.MetricType, params map[string]string) (milvusindex.Index, error) {
-	complete := make(map[string]string, len(params)+2)
-	maps.Copy(complete, params)
-	complete[milvusindex.IndexTypeKey] = string(indexType)
-	complete[milvusindex.MetricTypeKey] = string(metricType)
-
-	idx := milvusindex.NewGenericIndex("", complete)
-	return idx, nil
 }

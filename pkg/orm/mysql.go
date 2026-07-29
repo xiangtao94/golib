@@ -95,10 +95,6 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	return client, nil
 }
 
-func newGORMConfig(conf MysqlConf) *gorm.Config {
-	return gormConfig(conf, newLogger())
-}
-
 func gormConfig(conf MysqlConf, log logger.Interface) *gorm.Config {
 	return &gorm.Config{
 		SkipDefaultTransaction: conf.SkipDefaultTransaction,

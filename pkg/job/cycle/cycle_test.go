@@ -13,14 +13,17 @@ import (
 
 func TestCyclePropagatesCancellationAndStops(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New()
+		scheduler := &Cycle{}
 		started := make(chan struct{})
 		stopped := make(chan struct{})
-		scheduler.AddFunc(time.Hour, func(ctx context.Context) error {
-			close(started)
-			<-ctx.Done()
-			close(stopped)
-			return ctx.Err()
+		scheduler.Add(Entry{
+			Interval: time.Hour,
+			Job: FuncJob(func(ctx context.Context) error {
+				close(started)
+				<-ctx.Done()
+				close(stopped)
+				return ctx.Err()
+			}),
 		})
 
 		scheduler.Start(t.Context())
@@ -35,7 +38,7 @@ func TestCyclePropagatesCancellationAndStops(t *testing.T) {
 }
 
 func TestCycleRejectsNilLifecycleContexts(t *testing.T) {
-	scheduler := New()
+	scheduler := &Cycle{}
 
 	require.PanicsWithValue(t, "cycle: nil context", func() {
 		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
@@ -49,7 +52,7 @@ func TestCycleRejectsNilLifecycleContexts(t *testing.T) {
 
 func TestCycleRetriesPanicsAsErrors(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New()
+		scheduler := &Cycle{}
 		var attempts atomic.Int32
 		entry := &Entry{
 			Job: FuncJob(func(context.Context) error {
@@ -70,12 +73,15 @@ func TestCycleRetriesPanicsAsErrors(t *testing.T) {
 
 func TestCycleStopHonorsDeadline(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New()
+		scheduler := &Cycle{}
 		started := make(chan struct{})
-		scheduler.AddFunc(time.Hour, func(context.Context) error {
-			close(started)
-			time.Sleep(50 * time.Millisecond)
-			return errors.New("late")
+		scheduler.Add(Entry{
+			Interval: time.Hour,
+			Job: FuncJob(func(context.Context) error {
+				close(started)
+				time.Sleep(50 * time.Millisecond)
+				return errors.New("late")
+			}),
 		})
 		scheduler.Start(t.Context())
 		<-started

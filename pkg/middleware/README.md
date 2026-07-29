@@ -11,7 +11,7 @@ if err != nil {
     return err
 }
 
-engine.Use(middleware.CustomRecoveryWithZap(nil, nil))
+engine.Use(middleware.Recovery(nil, nil))
 engine.Use(middleware.RequestID())
 engine.Use(cors)
 engine.Use(middleware.RateLimitMiddleware(middleware.RateLimiterConfig{

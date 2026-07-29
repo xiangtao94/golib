@@ -11,10 +11,6 @@ type Gate struct {
 	ready atomic.Bool
 }
 
-func New() *Gate {
-	return &Gate{}
-}
-
 func (gate *Gate) SetReady() {
 	gate.ready.Store(true)
 }

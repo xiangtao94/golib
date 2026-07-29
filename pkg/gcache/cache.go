@@ -244,25 +244,7 @@ func (cache *Cache[V]) Delete(key string) {
 
 // DeleteExpired removes all expired values and invokes the eviction callback.
 func (cache *Cache[V]) DeleteExpired() {
-	now := time.Now().UnixNano()
-	for index := range cache.state.shards {
-		target := &cache.state.shards[index]
-		var evicted map[string]V
-		target.mu.Lock()
-		for key, item := range target.items {
-			if item.expiredAt(now) {
-				if evicted == nil {
-					evicted = make(map[string]V)
-				}
-				evicted[key] = item.Value
-				delete(target.items, key)
-			}
-		}
-		target.mu.Unlock()
-		for key, value := range evicted {
-			cache.notifyEvicted(key, value)
-		}
-	}
+	deleteExpired(cache.state)
 	runtime.KeepAlive(cache)
 }
 
@@ -294,7 +276,20 @@ func (cache *Cache[V]) Items() map[string]Item[V] {
 
 // Len returns the number of current values.
 func (cache *Cache[V]) Len() int {
-	return len(cache.Items())
+	now := time.Now().UnixNano()
+	count := 0
+	for index := range cache.state.shards {
+		target := &cache.state.shards[index]
+		target.mu.RLock()
+		for _, item := range target.items {
+			if !item.expiredAt(now) {
+				count++
+			}
+		}
+		target.mu.RUnlock()
+	}
+	runtime.KeepAlive(cache)
+	return count
 }
 
 // Flush deletes every value without invoking the eviction callback.

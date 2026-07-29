@@ -16,7 +16,7 @@ func (immediateSchedule) Next(now time.Time) time.Time {
 }
 
 func TestCronUsesCallerContextAndStops(t *testing.T) {
-	scheduler := New()
+	scheduler := New(time.Local)
 	require.NoError(t, scheduler.AddJob("* * * * * *", FuncJob(func(ctx context.Context) error {
 		require.NotNil(t, ctx)
 		return nil
@@ -32,7 +32,7 @@ func TestCronUsesCallerContextAndStops(t *testing.T) {
 }
 
 func TestCronRejectsNilLifecycleContexts(t *testing.T) {
-	scheduler := New()
+	scheduler := New(time.Local)
 
 	require.PanicsWithValue(t, "cron: nil context", func() {
 		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
@@ -46,7 +46,7 @@ func TestCronRejectsNilLifecycleContexts(t *testing.T) {
 
 func TestCronWaitsForInflightJobs(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New()
+		scheduler := New(time.Local)
 		started := make(chan struct{})
 		release := make(chan struct{})
 		scheduler.Schedule("immediate", immediateSchedule{}, FuncJob(func(context.Context) error {

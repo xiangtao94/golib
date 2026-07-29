@@ -13,7 +13,7 @@ import (
 type HTTPContextFunc func(context.Context, *http.Request) context.Context
 
 type Handler struct {
-	server             *officialmcp.Server
+	Server             *officialmcp.Server
 	BasePath           string
 	ContextFn          HTTPContextFunc
 	ServerOpts         officialmcp.ServerOptions
@@ -28,16 +28,11 @@ func NewHandler(name, version string, opts ...MCPHandlerOption) *Handler {
 	for _, opt := range opts {
 		opt(h)
 	}
-	h.server = officialmcp.NewServer(
+	h.Server = officialmcp.NewServer(
 		&officialmcp.Implementation{Name: name, Version: version},
 		&h.ServerOpts,
 	)
 	return h
-}
-
-// GetServer returns the underlying official MCP server.
-func (h *Handler) GetServer() *officialmcp.Server {
-	return h.server
 }
 
 // WithBasePath sets the Gin route used by the streamable HTTP transport.
@@ -70,18 +65,4 @@ func WithStreamableHTTPOptions(opts *officialmcp.StreamableHTTPOptions) MCPHandl
 			h.StreamableHTTPOpts = *opts
 		}
 	}
-}
-
-// AddTool adds or replaces a tool on the MCP server.
-//
-// This exposes the official SDK's low-level API. The caller is responsible for
-// decoding and validating req.Params.Arguments. Callers wanting typed schema
-// inference can use officialmcp.AddTool with GetServer.
-func (h *Handler) AddTool(tool *officialmcp.Tool, handler officialmcp.ToolHandler) {
-	h.server.AddTool(tool, handler)
-}
-
-// RemoveTools removes tools by name. Removing an unknown tool is a no-op.
-func (h *Handler) RemoveTools(names ...string) {
-	h.server.RemoveTools(names...)
 }

@@ -58,7 +58,7 @@ func main() {
 
 ```go
 // 检查索引是否存在
-exists, err := client.CheckIndex(ctx, "my-index")
+exists, err := client.Client.Indices.Exists("my-index").Do(ctx)
 if err != nil {
     log.Fatal(err)
 }
@@ -119,7 +119,7 @@ query := &types.Query{
     },
 }
 
-err = client.DocumentDelete(ctx, "my-index", query)
+_, err = client.Client.DeleteByQuery("my-index").Query(query).Do(ctx)
 if err != nil {
     log.Fatal(err)
 }

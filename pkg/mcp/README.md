@@ -18,7 +18,7 @@ import (
 
 func main() {
 	handler := ginmcp.NewHandler("example", "1.0.0")
-	handler.AddTool(
+	handler.Server.AddTool(
 		&officialmcp.Tool{
 			Name:        "hello",
 			Description: "Say hello",
@@ -39,11 +39,11 @@ func main() {
 }
 ```
 
-`Handler.AddTool` 对应官方 SDK 的底层工具 API。工具处理器负责解析和校验
+`Handler.Server` 是官方 SDK server。工具处理器负责解析和校验
 `request.Params.Arguments`。需要类型推导和自动 JSON Schema 校验时，直接使用官方泛型 API：
 
 ```go
-officialmcp.AddTool(handler.GetServer(), tool, typedHandler)
+officialmcp.AddTool(handler.Server, tool, typedHandler)
 ```
 
 ## 请求上下文
