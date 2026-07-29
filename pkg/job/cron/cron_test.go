@@ -17,11 +17,11 @@ func (immediateSchedule) Next(now time.Time) time.Time {
 }
 
 func TestCronUsesCallerContextAndStops(t *testing.T) {
-	scheduler := New(time.Local)
-	require.NoError(t, scheduler.AddJob("* * * * * *", FuncJob(func(ctx context.Context) error {
+	scheduler := New()
+	require.NoError(t, scheduler.AddFunc("* * * * * *", func(ctx context.Context) error {
 		require.NotNil(t, ctx)
 		return nil
-	})))
+	}))
 
 	scheduler.Start(context.Background())
 	scheduler.Start(context.Background())
@@ -33,7 +33,7 @@ func TestCronUsesCallerContextAndStops(t *testing.T) {
 }
 
 func TestCronRejectsNilLifecycleContexts(t *testing.T) {
-	scheduler := New(time.Local)
+	scheduler := New()
 
 	require.PanicsWithValue(t, "cron: nil context", func() {
 		//lint:ignore SA1012 This test verifies that nil contexts are rejected.
@@ -47,7 +47,7 @@ func TestCronRejectsNilLifecycleContexts(t *testing.T) {
 
 func TestCronWaitsForInflightJobs(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New(time.Local)
+		scheduler := New()
 		started := make(chan struct{})
 		release := make(chan struct{})
 		scheduler.Schedule("immediate", immediateSchedule{}, FuncJob(func(context.Context) error {
@@ -80,7 +80,7 @@ func TestCronWaitsForInflightJobs(t *testing.T) {
 
 func TestCronDoesNotOverlapTheSameEntry(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
-		scheduler := New(time.Local)
+		scheduler := New()
 		var running atomic.Int32
 		var maximum atomic.Int32
 		scheduler.Schedule("immediate", immediateSchedule{}, FuncJob(func(ctx context.Context) error {

@@ -4,13 +4,13 @@
 
 ## Cron
 
-Cron 按 schedule 触发；同一 job 的前一次执行未完成时，下一次仍可并发开始。
+Cron 按 schedule 触发；同一 entry 的前一次执行未完成时会合并后续 tick，不会与自身重叠。
 
 ```go
-scheduler := cron.New(time.Local)
-if err := scheduler.AddJob("*/5 * * * * *", cron.FuncJob(func(ctx context.Context) error {
+scheduler := cron.New()
+if err := scheduler.AddFunc("*/5 * * * * *", func(ctx context.Context) error {
 	return refresh(ctx)
-})); err != nil {
+}); err != nil {
 	return err
 }
 scheduler.Start(appContext)
@@ -27,14 +27,14 @@ return scheduler.Stop(shutdownCtx)
 Cycle 在一次执行完成后再等待 interval，因此默认不会与自身重叠：
 
 ```go
-worker := &cycle.Cycle{}
-worker.Add(cycle.Entry{
-	Interval:      time.Minute,
-	Job:           cycle.FuncJob(func(ctx context.Context) error { return syncData(ctx) }),
-	Concurrency:   1,
-	MaxRetry:      3,
-	RetryInterval: time.Second,
-})
+worker := cycle.New()
+worker.AddFuncWithConfig(
+	time.Minute,
+	func(ctx context.Context) error { return syncData(ctx) },
+	1,
+	3,
+	time.Second,
+)
 worker.Start(appContext)
 defer worker.Stop(shutdownContext)
 ```

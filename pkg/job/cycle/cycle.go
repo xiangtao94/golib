@@ -36,6 +36,11 @@ type Entry struct {
 	RetryInterval time.Duration
 }
 
+// New creates an empty cycle scheduler.
+func New() *Cycle {
+	return &Cycle{}
+}
+
 type FuncJob func(context.Context) error
 
 func (f FuncJob) Run(ctx context.Context) error {
@@ -54,6 +59,28 @@ func (c *Cycle) AddAfterRun(afterRun func(context.Context)) *Cycle {
 	defer c.mu.Unlock()
 	c.afterRun = afterRun
 	return c
+}
+
+// AddFunc adapts a function to a single-worker entry with default retry policy.
+func (c *Cycle) AddFunc(interval time.Duration, job func(context.Context) error) {
+	c.AddFuncWithConfig(interval, job, 1, 0, time.Second)
+}
+
+// AddFuncWithConfig adapts a function to an Entry with explicit worker and retry policy.
+func (c *Cycle) AddFuncWithConfig(
+	interval time.Duration,
+	job func(context.Context) error,
+	concurrency int,
+	maxRetry int,
+	retryInterval time.Duration,
+) {
+	c.Add(Entry{
+		Interval:      interval,
+		Job:           FuncJob(job),
+		Concurrency:   concurrency,
+		MaxRetry:      maxRetry,
+		RetryInterval: retryInterval,
+	})
 }
 
 // Add registers an entry. Jobs cannot be added after Start.

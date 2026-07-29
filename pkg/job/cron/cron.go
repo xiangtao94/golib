@@ -55,7 +55,13 @@ func compareEntryTime(left, right *Entry) int {
 	return left.Next.Compare(right.Next)
 }
 
-func New(location *time.Location) *Cron {
+// New creates a scheduler in the process local timezone.
+func New() *Cron {
+	return NewWithLocation(time.Local)
+}
+
+// NewWithLocation creates a scheduler using location for schedule evaluation.
+func NewWithLocation(location *time.Location) *Cron {
 	if location == nil {
 		location = time.Local
 	}
@@ -81,6 +87,11 @@ func (c *Cron) AddAfterRun(afterRun func(context.Context)) *Cron {
 	defer c.mu.Unlock()
 	c.afterRun = afterRun
 	return c
+}
+
+// AddFunc adapts a function to Job and registers it under spec.
+func (c *Cron) AddFunc(spec string, job func(context.Context) error) error {
+	return c.AddJob(spec, FuncJob(job))
 }
 
 func (c *Cron) AddJob(spec string, cmd Job) error {

@@ -41,7 +41,7 @@ func TestFoundationCanBeImportedWithoutWorkspace(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if new(health.Gate).Ready() {
+	if health.New().Ready() {
 		t.Fatal("new health gate must start not ready")
 	}
 	if status := serviceerrors.ErrConflict.HTTPStatus(); status != http.StatusConflict {

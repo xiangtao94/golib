@@ -11,6 +11,11 @@ type Gate struct {
 	ready atomic.Bool
 }
 
+// New returns a readiness gate in the not-ready state.
+func New() *Gate {
+	return &Gate{}
+}
+
 func (gate *Gate) SetReady() {
 	gate.ready.Store(true)
 }
