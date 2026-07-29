@@ -2,6 +2,7 @@ package zlog
 
 import (
 	"context"
+	"time"
 
 	"go.uber.org/zap"
 )
@@ -49,6 +50,14 @@ func noLog(ctx context.Context) bool {
 	}
 	flag, _ := ctx.Value(noLogContextKey{}).(bool)
 	return flag
+}
+
+func GetFormatRequestTime(time time.Time) string {
+	return time.Format("2006-01-02 15:04:05.000")
+}
+
+func GetRequestCost(start, end time.Time) float64 {
+	return float64(end.Sub(start).Nanoseconds()/1e4) / 100.0
 }
 
 // 返回带上下文信息的 zap.Logger

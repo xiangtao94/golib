@@ -57,11 +57,12 @@ engine := gin.New()
 
 logConfig := zlog.DefaultLogConfig()
 logConfig.AppName = "users"
-if err := golib.Bootstrap(engine, golib.BootstrapConfig{
-	Log:             &logConfig,
-	EnableRecovery:  true,
-	EnableAccessLog: true,
-}); err != nil {
+if err := golib.Bootstraps(
+	engine,
+	golib.WithZlog(logConfig),
+	golib.WithRecovery(nil),
+	golib.WithAccessLog(),
+); err != nil {
 	return err
 }
 defer zlog.CloseLogger()
@@ -70,7 +71,7 @@ server := golib.NewHTTPServer(engine, golib.DefaultHTTPServerConfig(8080))
 return server.Run(appContext)
 ```
 
-`Bootstrap` 总会安装 request ID middleware。调用方负责 OS signal，并通过取消 `appContext` 触发 HTTP server、cron 和 cycle 的停止。`pprof` 默认不注册；如需启用，只在经过认证且网络隔离的管理 listener 上调用 `RegisterPprof`。
+`Bootstraps` 总会安装 request ID middleware。调用方负责 OS signal，并通过取消 `appContext` 触发 HTTP server、cron 和 cycle 的停止。`pprof` 默认不注册；如需启用，只在经过认证且网络隔离的管理 listener 上调用 `RegisterPprof`。
 
 ## 业务实现 Web Controller
 
