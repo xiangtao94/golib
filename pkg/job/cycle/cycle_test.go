@@ -5,30 +5,33 @@ import (
 	"errors"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
 func TestCyclePropagatesCancellationAndStops(t *testing.T) {
-	scheduler := New()
-	started := make(chan struct{})
-	stopped := make(chan struct{})
-	scheduler.AddFunc(time.Hour, func(ctx context.Context) error {
-		close(started)
-		<-ctx.Done()
-		close(stopped)
-		return ctx.Err()
+	synctest.Test(t, func(t *testing.T) {
+		scheduler := New()
+		started := make(chan struct{})
+		stopped := make(chan struct{})
+		scheduler.AddFunc(time.Hour, func(ctx context.Context) error {
+			close(started)
+			<-ctx.Done()
+			close(stopped)
+			return ctx.Err()
+		})
+
+		scheduler.Start(t.Context())
+		<-started
+
+		stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		require.NoError(t, scheduler.Stop(stopCtx))
+		<-stopped
+		require.NoError(t, scheduler.Stop(stopCtx))
 	})
-
-	scheduler.Start(context.Background())
-	<-started
-
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	require.NoError(t, scheduler.Stop(stopCtx))
-	<-stopped
-	require.NoError(t, scheduler.Stop(stopCtx))
 }
 
 func TestCycleRejectsNilLifecycleContexts(t *testing.T) {
@@ -45,36 +48,42 @@ func TestCycleRejectsNilLifecycleContexts(t *testing.T) {
 }
 
 func TestCycleRetriesPanicsAsErrors(t *testing.T) {
-	scheduler := New()
-	var attempts atomic.Int32
-	entry := &Entry{
-		Job: FuncJob(func(context.Context) error {
-			if attempts.Add(1) == 1 {
-				panic("boom")
-			}
-			return nil
-		}),
-		MaxRetry:      1,
-		RetryInterval: time.Millisecond,
-	}
+	synctest.Test(t, func(t *testing.T) {
+		scheduler := New()
+		var attempts atomic.Int32
+		entry := &Entry{
+			Job: FuncJob(func(context.Context) error {
+				if attempts.Add(1) == 1 {
+					panic("boom")
+				}
+				return nil
+			}),
+			MaxRetry:      1,
+			RetryInterval: time.Millisecond,
+		}
 
-	scheduler.runWithRetry(context.Background(), entry)
+		scheduler.runWithRetry(t.Context(), entry)
 
-	require.Equal(t, int32(2), attempts.Load())
+		require.Equal(t, int32(2), attempts.Load())
+	})
 }
 
 func TestCycleStopHonorsDeadline(t *testing.T) {
-	scheduler := New()
-	started := make(chan struct{})
-	scheduler.AddFunc(time.Hour, func(context.Context) error {
-		close(started)
-		time.Sleep(50 * time.Millisecond)
-		return errors.New("late")
-	})
-	scheduler.Start(context.Background())
-	<-started
+	synctest.Test(t, func(t *testing.T) {
+		scheduler := New()
+		started := make(chan struct{})
+		scheduler.AddFunc(time.Hour, func(context.Context) error {
+			close(started)
+			time.Sleep(50 * time.Millisecond)
+			return errors.New("late")
+		})
+		scheduler.Start(t.Context())
+		<-started
 
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Millisecond)
-	defer cancel()
-	require.ErrorIs(t, scheduler.Stop(stopCtx), context.DeadlineExceeded)
+		stopCtx, cancel := context.WithTimeout(t.Context(), time.Millisecond)
+		defer cancel()
+		require.ErrorIs(t, scheduler.Stop(stopCtx), context.DeadlineExceeded)
+		time.Sleep(49 * time.Millisecond)
+		synctest.Wait()
+	})
 }

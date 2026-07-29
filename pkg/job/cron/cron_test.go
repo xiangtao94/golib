@@ -3,6 +3,7 @@ package cron
 import (
 	"context"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/stretchr/testify/require"
@@ -44,31 +45,34 @@ func TestCronRejectsNilLifecycleContexts(t *testing.T) {
 }
 
 func TestCronWaitsForInflightJobs(t *testing.T) {
-	scheduler := New()
-	started := make(chan struct{})
-	release := make(chan struct{})
-	scheduler.Schedule("immediate", immediateSchedule{}, FuncJob(func(context.Context) error {
+	synctest.Test(t, func(t *testing.T) {
+		scheduler := New()
+		started := make(chan struct{})
+		release := make(chan struct{})
+		scheduler.Schedule("immediate", immediateSchedule{}, FuncJob(func(context.Context) error {
+			select {
+			case <-started:
+			default:
+				close(started)
+			}
+			<-release
+			return nil
+		}))
+		scheduler.Start(t.Context())
+		<-started
+
+		stopCtx, cancel := context.WithTimeout(t.Context(), time.Second)
+		defer cancel()
+		stopped := make(chan error, 1)
+		go func() { stopped <- scheduler.Stop(stopCtx) }()
+		synctest.Wait()
+
 		select {
-		case <-started:
+		case <-stopped:
+			t.Fatal("Stop returned before the in-flight job completed")
 		default:
-			close(started)
 		}
-		<-release
-		return nil
-	}))
-	scheduler.Start(context.Background())
-	<-started
-
-	stopCtx, cancel := context.WithTimeout(context.Background(), time.Second)
-	defer cancel()
-	stopped := make(chan error, 1)
-	go func() { stopped <- scheduler.Stop(stopCtx) }()
-
-	select {
-	case <-stopped:
-		t.Fatal("Stop returned before the in-flight job completed")
-	case <-time.After(10 * time.Millisecond):
-	}
-	close(release)
-	require.NoError(t, <-stopped)
+		close(release)
+		require.NoError(t, <-stopped)
+	})
 }
