@@ -1,87 +1,26 @@
 # gcache
-gcache 是基于go-cache开源项目修改封装，暴露shareded模式，原理是利用分桶的策略，缓解golang的map共享一把锁的代价，将锁力度下降
 
-### Installation
-### Usage
-#### 单桶Cache模式，共享一个Map
+`gcache` 是一个类型安全的分片内存缓存。每个缓存实例只保存一种值类型，
+无需类型断言；分片数用于降低并发写入时的锁竞争。
+
 ```go
+cache := gcache.New[string](5*time.Minute, 10*time.Minute, 16)
+defer cache.Close()
 
-func main() {
-	// Create a cache with a default expiration time of 5 minutes, and which
-	// purges expired items every 10 minutes
-	c := gcache.New(5*time.Minute, 10*time.Minute)
-
-	// Set the value of the key "foo" to "bar", with the default expiration time
-	c.Set("foo", "bar", cache.DefaultExpiration)
-
-	// Set the value of the key "baz" to 42, with no expiration time
-	// (the item won't be removed until it is re-set, or removed using
-	// c.Delete("baz")
-	c.Set("baz", 42, cache.NoExpiration)
-
-	// Get the string associated with the key "foo" from the cache
-	foo, found := c.Get("foo")
-	if found {
-		fmt.Println(foo)
-	}
-
-	// Since Go is statically typed, and cache values can be anything, type
-	// assertion is needed when values are being passed to functions that don't
-	// take arbitrary types, (i.e. interface{}). The simplest way to do this for
-	// values which will only be used once--e.g. for passing to another
-	// function--is:
-	foo, found := c.Get("foo")
-	if found {
-		MyFunction(foo.(string))
-	}
-
-	// This gets tedious if the value is used several times in the same function.
-	// You might do either of the following instead:
-	if x, found := c.Get("foo"); found {
-		foo := x.(string)
-		// ...
-	}
-	// or
-	var foo string
-	if x, found := c.Get("foo"); found {
-		foo = x.(string)
-	}
-	// ...
-	// foo can then be passed around freely as a string
-
-	// Want performance? Store pointers!
-	c.Set("foo", &MyStruct, cache.DefaultExpiration)
-	if x, found := c.Get("foo"); found {
-		foo := x.(*MyStruct)
-			// ...
-	}
-}
+cache.Set("user:42", "active", gcache.DefaultExpiration)
+status, found := cache.Get("user:42")
 ```
 
-#### 分桶Cache模式，每个桶一个Map
-```go
-var shardedKeys = []string{
-	"f",
-	"fo",
-	"foo",
-	"barf",
-	"barfo",
-	"foobar",
-	"bazbarf",
-	"bazbarfo",
-	"bazbarfoo",
-	"foobarbazq",
-	"foobarbazqu",
-	"foobarbazquu",
-	"foobarbazquux",
-}
+需要原子读改写时使用 `Update`，它替代了按每种数字类型重复定义的
+`IncrementInt`、`IncrementFloat64` 等接口：
 
-func main() {
-	// Create a cache with a default expiration time of 5 minutes, and which
-	// purges expired items every 10 minutes
-	tc := NewBucketCache(5*time.Minute, 10*time.Minute, 10)
-	for _, v := range shardedKeys {
-		tc.Set(v, "value", DefaultExpiration)
-	}
-}
+```go
+counts := gcache.New[int](gcache.NoExpiration, 0, 16)
+counts.Set("requests", 0, gcache.DefaultExpiration)
+next, err := counts.Update("requests", func(current int) (int, error) {
+	return current + 1, nil
+})
 ```
+
+清理间隔大于零时会启动过期项 janitor。正常生命周期中应调用 `Close`；
+Go 1.26 的 `runtime.AddCleanup` 仅作为遗漏关闭时的兜底。
