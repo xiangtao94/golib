@@ -3,8 +3,7 @@ package elasticsearch
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
@@ -31,8 +30,15 @@ type ElasticConf struct {
 }
 
 type ElasticsearchClient struct {
-	Client *elasticsearch.TypedClient
+	Client       *elasticsearch.TypedClient
+	bulkMaxDocs  int
+	bulkMaxBytes int
 }
+
+const (
+	defaultBulkMaxDocs  = 3_000
+	defaultBulkMaxBytes = 8 << 20
+)
 
 func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 	endpointURL, err := url.Parse(conf.Addr)
@@ -63,7 +69,9 @@ func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 		return nil, err
 	}
 	return &ElasticsearchClient{
-		Client: typeClient,
+		Client:       typeClient,
+		bulkMaxDocs:  defaultBulkMaxDocs,
+		bulkMaxBytes: defaultBulkMaxBytes,
 	}, nil
 }
 
@@ -92,32 +100,73 @@ func (ec *ElasticsearchClient) DeleteIndex(ctx context.Context, indexName string
 	return nil
 }
 
-// BulkInsert 批量插入数据，批量限制为 3000 条
-func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName string, docs []any) (err error) {
-	bulk := ec.Client.Bulk().Index(indexName)
-	for _, doc := range docs {
-		// 获取当前时间戳（秒级）
-		timestamp := time.Now().UnixMicro()
-		id := uuid.NewString()
-		// 将时间戳与文档内容连接
-		combined := fmt.Sprintf("%s%d", id, timestamp)
-		// 生成SHA256哈希
-		hash := sha256.Sum256([]byte(combined))
-		// Base64编码哈希值
-		uniqueID := base64.StdEncoding.EncodeToString(hash[:])
-		err = bulk.CreateOp(types.CreateOperation{Index_: &indexName, Id_: &uniqueID}, doc)
+// DocumentInsert writes documents in bounded bulk requests.
+func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName string, docs []any) error {
+	maxDocs := ec.bulkMaxDocs
+	if maxDocs <= 0 {
+		maxDocs = defaultBulkMaxDocs
+	}
+	maxBytes := ec.bulkMaxBytes
+	if maxBytes <= 0 {
+		maxBytes = defaultBulkMaxBytes
+	}
+
+	type pendingDocument struct {
+		id  string
+		doc any
+	}
+	batch := make([]pendingDocument, 0, min(len(docs), maxDocs))
+	batchBytes := 0
+
+	flush := func() error {
+		if len(batch) == 0 {
+			return nil
+		}
+		bulk := ec.Client.Bulk().Index(indexName)
+		for _, pending := range batch {
+			if err := bulk.CreateOp(
+				types.CreateOperation{Index_: &indexName, Id_: &pending.id},
+				pending.doc,
+			); err != nil {
+				return err
+			}
+		}
+		response, err := bulk.Do(ctx)
 		if err != nil {
 			return err
 		}
+		if response.Errors {
+			return fmt.Errorf("elasticsearch bulk request contains failed operations")
+		}
+		batch = batch[:0]
+		batchBytes = 0
+		return nil
 	}
-	resp, err := bulk.Do(ctx)
-	if err != nil {
-		return err
+
+	for _, doc := range docs {
+		id := uuid.NewString()
+		encoded, err := json.Marshal(doc)
+		if err != nil {
+			return err
+		}
+		estimatedBytes := len(encoded) + len(indexName) + len(id) + 64
+		if estimatedBytes > maxBytes {
+			return fmt.Errorf(
+				"elasticsearch document size %d exceeds bulk byte limit %d",
+				estimatedBytes,
+				maxBytes,
+			)
+		}
+		if len(batch) > 0 &&
+			(len(batch) >= maxDocs || batchBytes+estimatedBytes > maxBytes) {
+			if err := flush(); err != nil {
+				return err
+			}
+		}
+		batch = append(batch, pendingDocument{id: id, doc: doc})
+		batchBytes += estimatedBytes
 	}
-	if resp.Errors {
-		return fmt.Errorf("elastic search error: %v", resp.Errors)
-	}
-	return nil
+	return flush()
 }
 
 // Search 混合查询

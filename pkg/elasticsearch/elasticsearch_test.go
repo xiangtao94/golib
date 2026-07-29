@@ -7,9 +7,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	elasticapi "github.com/elastic/go-elasticsearch/v9"
 	"github.com/stretchr/testify/require"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
@@ -55,6 +57,60 @@ func TestElasticsearchBodyLoggingIsOffByDefault(t *testing.T) {
 
 	require.Nil(t, request)
 	require.Nil(t, response)
+}
+
+func TestDocumentInsertSplitsBulkRequestsByDocumentCount(t *testing.T) {
+	var mu sync.Mutex
+	var batchSizes []int
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		body, err := io.ReadAll(request.Body)
+		require.NoError(t, err)
+		mu.Lock()
+		batchSizes = append(batchSizes, strings.Count(string(body), `"create"`))
+		mu.Unlock()
+		w.Header().Set("Content-Type", "application/vnd.elasticsearch+json;compatible-with=9")
+		w.Header().Set("X-Elastic-Product", "Elasticsearch")
+		_, _ = io.WriteString(w, `{"errors":false,"took":1,"items":[]}`)
+	}))
+	defer server.Close()
+	typedClient, err := elasticapi.NewTyped(elasticapi.WithAddresses(server.URL))
+	require.NoError(t, err)
+	client := &ElasticsearchClient{
+		Client:       typedClient,
+		bulkMaxDocs:  2,
+		bulkMaxBytes: 1 << 20,
+	}
+
+	require.NoError(t, client.DocumentInsert(
+		context.Background(),
+		"documents",
+		[]any{
+			map[string]any{"value": 1},
+			map[string]any{"value": 2},
+			map[string]any{"value": 3},
+			map[string]any{"value": 4},
+			map[string]any{"value": 5},
+		},
+	))
+
+	mu.Lock()
+	defer mu.Unlock()
+	require.Equal(t, []int{2, 2, 1}, batchSizes)
+}
+
+func TestDocumentInsertRejectsDocumentLargerThanByteBudget(t *testing.T) {
+	client := &ElasticsearchClient{
+		bulkMaxDocs:  defaultBulkMaxDocs,
+		bulkMaxBytes: 64,
+	}
+
+	err := client.DocumentInsert(
+		context.Background(),
+		"documents",
+		[]any{map[string]any{"value": strings.Repeat("x", 128)}},
+	)
+
+	require.ErrorContains(t, err, "exceeds bulk byte limit")
 }
 
 func assertLogRoundTripDoesNotPanic(t *testing.T, logRoundTrip func() error) {
