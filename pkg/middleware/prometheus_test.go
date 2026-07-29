@@ -29,3 +29,17 @@ func TestMetricsUseRouteTemplateAndStatusClass(t *testing.T) {
 	require.Contains(t, body, `status_class="2xx"`)
 	require.NotContains(t, body, `route="/users/user-123"`)
 }
+
+func TestMetricsHandlerAdaptsOwnedRegistryToHTTP(t *testing.T) {
+	metrics, err := NewMetrics(MetricsConfig{AppName: "test"})
+	require.NoError(t, err)
+	response := httptest.NewRecorder()
+
+	metrics.Handler().ServeHTTP(
+		response,
+		httptest.NewRequest(http.MethodGet, "/metrics", nil),
+	)
+
+	require.Equal(t, http.StatusOK, response.Code)
+	require.Contains(t, response.Body.String(), "go_gc_duration_seconds")
+}

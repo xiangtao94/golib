@@ -75,6 +75,11 @@ func InitESClient(conf ElasticConf) (*ElasticsearchClient, error) {
 	}, nil
 }
 
+// CheckIndex reports whether indexName exists.
+func (ec *ElasticsearchClient) CheckIndex(ctx context.Context, indexName string) (bool, error) {
+	return ec.Client.Indices.Exists(indexName).Do(ctx)
+}
+
 // CreateIndex 根据提供的 mapping 创建索引
 func (ec *ElasticsearchClient) CreateIndex(ctx context.Context, indexName string, mapping *types.TypeMapping, setting *types.IndexSettings) error {
 	res, err := ec.Client.Indices.Create(indexName).Mappings(mapping).Settings(setting).Do(ctx)
@@ -167,6 +172,16 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName str
 		batchBytes += estimatedBytes
 	}
 	return flush()
+}
+
+// DocumentDelete deletes every document matching query.
+func (ec *ElasticsearchClient) DocumentDelete(
+	ctx context.Context,
+	indexName string,
+	query *types.Query,
+) error {
+	_, err := ec.Client.DeleteByQuery(indexName).Query(query).Do(ctx)
+	return err
 }
 
 // Search 混合查询

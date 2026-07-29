@@ -57,7 +57,11 @@ func WithZlog(conf zlog.LogConfig) BootstrapOption {
 // 4. Access Log - 支持可选配置
 func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
 	return func(engine *gin.Engine) error {
-		middleware.RegistryAccessLog(engine, conf...)
+		logConfig := middleware.DefaultAccessLoggerConfig()
+		if len(conf) > 0 {
+			logConfig = conf[0]
+		}
+		engine.Use(middleware.AccessLog(logConfig))
 		return nil
 	}
 }
@@ -73,15 +77,8 @@ func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
 // 6. Prometheus
 func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
 	return func(engine *gin.Engine) error {
-		metrics, err := middleware.NewMetrics(middleware.MetricsConfig{
-			AppName:    env.GetAppName(),
-			Collectors: cs,
-		})
-		if err != nil {
-			return err
-		}
-		middleware.RegisterMetrics(engine, metrics)
-		return nil
+		_, err := middleware.RegistryMetrics(engine, cs...)
+		return err
 	}
 }
 
