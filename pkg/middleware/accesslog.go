@@ -155,10 +155,8 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 	}
 
 	return func(c *gin.Context) {
-		start := time.Now()
 		path := c.Request.URL.Path
 		ensureRequestID(c)
-		c.Request = c.Request.WithContext(zlog.WithRequestURI(c.Request.Context(), path))
 
 		if _, ok := skipPaths[path]; ok {
 			c.Next()
@@ -168,12 +166,16 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		if !zlog.AccessEnabled(c.Request.Context()) {
+			c.Next()
+			return
+		}
 
-		captureEnabled := zlog.AccessEnabled(c.Request.Context())
+		start := time.Now()
+		c.Request = c.Request.WithContext(zlog.WithRequestURI(c.Request.Context(), path))
 		var requestCapture *boundedCapture
 		var requestLog string
-		if captureEnabled &&
-			conf.MaxReqBodyLen > 0 &&
+		if conf.MaxReqBodyLen > 0 &&
 			conf.RequestBodySanitizer != nil {
 			if c.Request.Method == http.MethodGet || c.Request.Method == http.MethodDelete {
 				query := []byte(c.Request.URL.Query().Encode())
@@ -190,8 +192,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		}
 
 		var responseCapture *boundedCapture
-		if captureEnabled &&
-			conf.MaxRespBodyLen > 0 &&
+		if conf.MaxRespBodyLen > 0 &&
 			conf.ResponseBodySanitizer != nil {
 			responseCapture = newBoundedCapture(conf.MaxRespBodyLen)
 			c.Writer = &customRespWriter{

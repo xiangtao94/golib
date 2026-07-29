@@ -85,3 +85,24 @@ func TestAccessLogSkipsBodySanitizationWhenLoggingIsDisabled(t *testing.T) {
 
 	require.False(t, sanitized)
 }
+
+func TestAccessLogSkipsRequestURIContextWhenLoggingIsDisabled(t *testing.T) {
+	_, err := zlog.InitLog(zlog.LogConfig{
+		Level:  "info",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, zlog.CloseLogger()) })
+
+	var requestURI string
+	engine := gin.New()
+	engine.Use(AccessLog(DefaultAccessLoggerConfig()))
+	engine.GET("/", func(ctx *gin.Context) {
+		requestURI = zlog.GetRequestURI(ctx.Request.Context())
+		ctx.Status(http.StatusNoContent)
+	})
+
+	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/", nil))
+
+	require.Empty(t, requestURI)
+}
