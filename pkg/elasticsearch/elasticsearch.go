@@ -118,7 +118,7 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName str
 
 	type pendingDocument struct {
 		id  string
-		doc any
+		doc json.RawMessage
 	}
 	batch := make([]pendingDocument, 0, min(len(docs), maxDocs))
 	batchBytes := 0
@@ -154,7 +154,15 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName str
 		if err != nil {
 			return err
 		}
-		estimatedBytes := len(encoded) + len(indexName) + len(id) + 64
+		operation, err := json.Marshal(types.CreateOperation{
+			Index_: &indexName,
+			Id_:    &id,
+		})
+		if err != nil {
+			return err
+		}
+		estimatedBytes := len(`{"create":`) + len(operation) + len("}\n") +
+			len(encoded) + len("\n")
 		if estimatedBytes > maxBytes {
 			return fmt.Errorf(
 				"elasticsearch document size %d exceeds bulk byte limit %d",
@@ -168,7 +176,7 @@ func (ec *ElasticsearchClient) DocumentInsert(ctx context.Context, indexName str
 				return err
 			}
 		}
-		batch = append(batch, pendingDocument{id: id, doc: doc})
+		batch = append(batch, pendingDocument{id: id, doc: encoded})
 		batchBytes += estimatedBytes
 	}
 	return flush()
