@@ -119,6 +119,42 @@ func TestGzipDoesNotReencodeAnEncodedResponse(t *testing.T) {
 	require.Equal(t, "already encoded", response.Body.String())
 }
 
+func TestGzipRemovesStrongETagWhenRepresentationChanges(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(GzipMiddleware())
+	engine.GET("/", func(ctx *gin.Context) {
+		ctx.Header("ETag", `"identity-v1"`)
+		_, _ = ctx.Writer.WriteString("compress me")
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, "gzip", response.Header().Get("Content-Encoding"))
+	require.Empty(t, response.Header().Get("ETag"))
+}
+
+func TestGzipPreservesWeakETagWhenRepresentationChanges(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	engine := gin.New()
+	engine.Use(GzipMiddleware())
+	engine.GET("/", func(ctx *gin.Context) {
+		ctx.Header("ETag", `W/"semantic-v1"`)
+		_, _ = ctx.Writer.WriteString("compress me")
+	})
+
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, request)
+
+	require.Equal(t, "gzip", response.Header().Get("Content-Encoding"))
+	require.Equal(t, `W/"semantic-v1"`, response.Header().Get("ETag"))
+}
+
 func TestGzipPreservesServerErrorStatusWhenHandlerPanics(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()

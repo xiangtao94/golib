@@ -3,6 +3,7 @@ package mcp
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -133,6 +134,82 @@ func TestHandlerCloseClosesActiveSessions(t *testing.T) {
 	if got := serverSessionCount(handler.Server); got != 0 {
 		t.Fatalf("active sessions after rejected initialize = %d, want 0", got)
 	}
+}
+
+func TestHandlerCloseIsNotBlockedByARequestBodyRead(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := NewHandler(
+		"nonblocking-close-test",
+		"1.0.0",
+		WithStreamableHTTPOptions(&officialmcp.StreamableHTTPOptions{
+			JSONResponse: true,
+		}),
+	)
+	engine := gin.New()
+	handler.Register(engine)
+
+	body := &blockingReadCloser{
+		started: make(chan struct{}),
+		release: make(chan struct{}),
+	}
+	request := httptest.NewRequest(http.MethodPost, "/mcp", body)
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Content-Type", "application/json")
+	requestReturned := make(chan struct{})
+	go func() {
+		engine.ServeHTTP(httptest.NewRecorder(), request)
+		close(requestReturned)
+	}()
+
+	select {
+	case <-body.started:
+	case <-time.After(time.Second):
+		t.Fatal("request body was not read")
+	}
+
+	closeReturned := make(chan error, 1)
+	go func() {
+		closeReturned <- handler.Close()
+	}()
+	select {
+	case err := <-closeReturned:
+		if err != nil {
+			t.Fatalf("Close: %v", err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		close(body.release)
+		<-requestReturned
+		t.Fatal("Close() was blocked by request body I/O")
+	}
+
+	close(body.release)
+	select {
+	case <-requestReturned:
+	case <-time.After(time.Second):
+		t.Fatal("request did not return after its body was released")
+	}
+	if got := serverSessionCount(handler.Server); got != 0 {
+		t.Fatalf("active sessions after Close = %d, want 0", got)
+	}
+}
+
+type blockingReadCloser struct {
+	started     chan struct{}
+	startedOnce sync.Once
+	release     chan struct{}
+}
+
+func (body *blockingReadCloser) Read([]byte) (int, error) {
+	body.startedOnce.Do(func() {
+		close(body.started)
+	})
+	<-body.release
+	return 0, io.EOF
+}
+
+func (*blockingReadCloser) Close() error {
+	return nil
 }
 
 func TestRegisterRejectsSessionsAboveActiveLimit(t *testing.T) {

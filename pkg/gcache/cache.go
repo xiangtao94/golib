@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -30,6 +31,8 @@ const (
 
 	minSnapshotBytes             int64 = 1 << 20
 	defaultSnapshotBytesPerEntry int64 = 1 << 10
+	maxLegacySnapshotBytes       int64 = 4 << 20
+	snapshotMagic                      = "gcache\x00\x02"
 )
 
 var (
@@ -42,6 +45,11 @@ var (
 type Item[V any] struct {
 	Value      V
 	Expiration int64
+}
+
+type snapshotEntry[V any] struct {
+	Key  string
+	Item Item[V]
 }
 
 // Expired reports whether the item is expired at the current time.
@@ -85,6 +93,7 @@ type Cache[V any] struct {
 
 	closeMu sync.Mutex
 	janitor *janitor[V]
+	cleanup *runtime.Cleanup
 }
 
 // New creates a typed cache. A non-positive shard count is normalized to one.
@@ -145,6 +154,8 @@ func NewWithMaxEntries[V any](
 		}
 		go janitor.run()
 		cache.janitor = janitor
+		cleanup := runtime.AddCleanup(cache, requestStopJanitor[V], janitor)
+		cache.cleanup = &cleanup
 	}
 	return cache
 }
@@ -169,11 +180,17 @@ func (cache *Cache[V]) Close() {
 		return
 	}
 
-	cache.RequestClose()
 	cache.closeMu.Lock()
 	janitor := cache.janitor
+	cleanup := cache.cleanup
+	cache.cleanup = nil
 	cache.closeMu.Unlock()
+	if cleanup != nil {
+		cleanup.Stop()
+	}
+	requestStopJanitor(janitor)
 	if janitor == nil {
+		runtime.KeepAlive(cache)
 		return
 	}
 	<-janitor.done
@@ -183,6 +200,7 @@ func (cache *Cache[V]) Close() {
 		cache.janitor = nil
 	}
 	cache.closeMu.Unlock()
+	runtime.KeepAlive(cache)
 }
 
 // Set stores a value, replacing an existing value.
@@ -382,13 +400,30 @@ func (cache *Cache[V]) Flush() {
 	}
 }
 
-// Save writes a snapshot to writer using encoding/gob.
+// Save writes a bounded-entry snapshot to writer using encoding/gob.
 func (cache *Cache[V]) Save(writer io.Writer) error {
 	if writer == nil {
 		return errors.New("gcache: save writer is required")
 	}
-	err := gob.NewEncoder(writer).Encode(cache.Items())
-	return err
+	items := cache.Items()
+	written, err := io.WriteString(writer, snapshotMagic)
+	if err != nil {
+		return err
+	}
+	if written != len(snapshotMagic) {
+		return io.ErrShortWrite
+	}
+	if err := binary.Write(writer, binary.BigEndian, uint64(len(items))); err != nil {
+		return err
+	}
+
+	encoder := gob.NewEncoder(writer)
+	for key, item := range items {
+		if err := encoder.Encode(snapshotEntry[V]{Key: key, Item: item}); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // SaveFile atomically writes a snapshot to filename.
@@ -436,17 +471,14 @@ func (cache *Cache[V]) LoadWithLimit(reader io.Reader, maxBytes int64) error {
 		return err
 	}
 
-	items := make(map[string]Item[V], min(int(cache.state.maxEntries), 1_024))
-	if err := gob.NewDecoder(bytes.NewReader(encoded)).Decode(&items); err != nil {
-		return err
+	var items map[string]Item[V]
+	if bytes.HasPrefix(encoded, []byte(snapshotMagic)) {
+		items, err = cache.decodeSnapshot(encoded[len(snapshotMagic):])
+	} else {
+		items, err = cache.decodeLegacySnapshot(encoded)
 	}
-	if int64(len(items)) > cache.state.maxEntries {
-		return fmt.Errorf(
-			"%w: contains %d entries, cache capacity is %d",
-			ErrSnapshotTooLarge,
-			len(items),
-			cache.state.maxEntries,
-		)
+	if err != nil {
+		return err
 	}
 
 	now := time.Now().UnixNano()
@@ -472,6 +504,70 @@ func (cache *Cache[V]) LoadWithLimit(reader io.Reader, maxBytes int64) error {
 		target.mu.Unlock()
 	}
 	return nil
+}
+
+func (cache *Cache[V]) decodeSnapshot(encoded []byte) (map[string]Item[V], error) {
+	reader := bytes.NewReader(encoded)
+	var count uint64
+	if err := binary.Read(reader, binary.BigEndian, &count); err != nil {
+		return nil, err
+	}
+	if count > uint64(cache.state.maxEntries) {
+		return nil, fmt.Errorf(
+			"%w: declares %d entries, cache capacity is %d",
+			ErrSnapshotTooLarge,
+			count,
+			cache.state.maxEntries,
+		)
+	}
+
+	items := make(map[string]Item[V], int(count))
+	decoder := gob.NewDecoder(reader)
+	for range count {
+		var entry snapshotEntry[V]
+		if err := decoder.Decode(&entry); err != nil {
+			return nil, err
+		}
+		if _, exists := items[entry.Key]; exists {
+			return nil, fmt.Errorf("gcache: duplicate snapshot key %q", entry.Key)
+		}
+		items[entry.Key] = entry.Item
+	}
+
+	var extra snapshotEntry[V]
+	switch err := decoder.Decode(&extra); {
+	case errors.Is(err, io.EOF):
+		return items, nil
+	case err != nil:
+		return nil, err
+	default:
+		return nil, errors.New("gcache: snapshot contains undeclared entries")
+	}
+}
+
+func (cache *Cache[V]) decodeLegacySnapshot(encoded []byte) (map[string]Item[V], error) {
+	if int64(len(encoded)) > maxLegacySnapshotBytes {
+		return nil, fmt.Errorf(
+			"%w: legacy encoded size %d exceeds compatibility limit %d",
+			ErrSnapshotTooLarge,
+			len(encoded),
+			maxLegacySnapshotBytes,
+		)
+	}
+
+	items := make(map[string]Item[V], min(int(cache.state.maxEntries), 1_024))
+	if err := gob.NewDecoder(bytes.NewReader(encoded)).Decode(&items); err != nil {
+		return nil, err
+	}
+	if int64(len(items)) > cache.state.maxEntries {
+		return nil, fmt.Errorf(
+			"%w: contains %d entries, cache capacity is %d",
+			ErrSnapshotTooLarge,
+			len(items),
+			cache.state.maxEntries,
+		)
+	}
+	return items, nil
 }
 
 func (cache *Cache[V]) snapshotLoadLimit() int64 {

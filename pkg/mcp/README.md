@@ -83,7 +83,8 @@ handler := ginmcp.NewHandler(
 Streamable HTTP transport 实现。状态会话默认在空闲 30 分钟后关闭，请求体默认上限为
 4 MiB，同时最多保留 1,024 个活跃状态会话。只有在其他生命周期 owner 能确保关闭全部会话时，才应显式配置
 `WithUnlimitedSessionLifetime()`。服务退出时调用 `Handler.Close()` 主动关闭仍在线的会话；
-关闭后 handler 不再接受新的状态会话。
+关闭后 handler 不再接受新的状态会话。正在初始化的会话只在短临界区内预留名额，
+请求体读取和协议处理不会占用会话准入锁；`Close` 会取消这些初始化请求。
 
 官方 SDK 没有旧实现的“会话级动态工具”和“按会话 ID 广播任意通知”抽象。本封装不模拟这些
 非标准能力；需要服务端到客户端交互时，应通过官方 `ServerSession` API 和 MCP 标准消息实现。

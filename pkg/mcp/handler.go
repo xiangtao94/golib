@@ -37,7 +37,12 @@ type Handler struct {
 
 	allowUnlimitedSessions bool
 	sessionAdmissionMu     sync.Mutex
+	sessionAdmissions      map[uint64]context.CancelFunc
+	sessionAdmissionChange chan struct{}
+	nextSessionAdmission   uint64
 	closed                 bool
+	closeDone              chan struct{}
+	closeErr               error
 }
 
 // MCPHandlerOption configures a Handler before its MCP server is created.
@@ -45,9 +50,12 @@ type MCPHandlerOption func(*Handler)
 
 func NewHandler(name, version string, opts ...MCPHandlerOption) *Handler {
 	h := &Handler{
-		BasePath:            "/mcp",
-		MaxRequestBodyBytes: DefaultMaxRequestBodyBytes,
-		MaxActiveSessions:   DefaultMaxActiveSessions,
+		BasePath:               "/mcp",
+		MaxRequestBodyBytes:    DefaultMaxRequestBodyBytes,
+		MaxActiveSessions:      DefaultMaxActiveSessions,
+		sessionAdmissions:      make(map[uint64]context.CancelFunc),
+		sessionAdmissionChange: make(chan struct{}),
+		closeDone:              make(chan struct{}),
 	}
 	for _, opt := range opts {
 		opt(h)
@@ -137,11 +145,30 @@ func (h *Handler) Close() error {
 	}
 
 	h.sessionAdmissionMu.Lock()
-	defer h.sessionAdmissionMu.Unlock()
+	if h.closeDone == nil {
+		h.closeDone = make(chan struct{})
+	}
 	if h.closed {
-		return nil
+		closeDone := h.closeDone
+		h.sessionAdmissionMu.Unlock()
+		<-closeDone
+		h.sessionAdmissionMu.Lock()
+		err := h.closeErr
+		h.sessionAdmissionMu.Unlock()
+		return err
 	}
 	h.closed = true
+	cancels := make([]context.CancelFunc, 0, len(h.sessionAdmissions))
+	for _, cancel := range h.sessionAdmissions {
+		cancels = append(cancels, cancel)
+	}
+	clear(h.sessionAdmissions)
+	h.notifySessionAdmissionChangeLocked()
+	h.sessionAdmissionMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
 
 	var errs []error
 	for session := range h.Server.Sessions() {
@@ -149,5 +176,10 @@ func (h *Handler) Close() error {
 			errs = append(errs, err)
 		}
 	}
-	return errors.Join(errs...)
+	err := errors.Join(errs...)
+	h.sessionAdmissionMu.Lock()
+	h.closeErr = err
+	close(h.closeDone)
+	h.sessionAdmissionMu.Unlock()
+	return err
 }

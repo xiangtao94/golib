@@ -28,9 +28,11 @@ next, err := counts.Update("requests", func(current int) (int, error) {
 
 清理间隔大于零时会启动过期项 janitor，调用方必须在生命周期结束时调用
 `Close`。淘汰回调与清理任务同步执行；回调需要停止当前 cache 时调用非阻塞的
-`RequestClose`，不要在回调内调用等待 janitor 结束的 `Close`。
+`RequestClose`，不要在回调内调用等待 janitor 结束的 `Close`。运行时 cleanup
+只会在 cache 被回收后尽力发送非阻塞停止信号，不能替代显式 `Close`。
 
-`Load` 在解码前限制快照字节数，并拒绝条目数超过目标缓存容量的快照，
-避免恢复过程绕过运行时容量预算。默认字节上限按容量估算，最小 1 MiB、
-最大 64 MiB；受信任的大值快照可显式调用 `LoadWithLimit` 提高字节上限，
-条目数上限仍不可绕过。现有 `encoding/gob` 快照格式保持兼容。
+`Save` 写出的快照会先记录条目数，再逐条使用 `encoding/gob` 编码；`Load`
+在解码条目前校验条目数，避免超容量快照先放大为完整 map。默认字节上限按容量
+估算，最小 1 MiB、最大 64 MiB；受信任的大值快照可显式调用 `LoadWithLimit`
+提高字节上限，条目数上限仍不可绕过。旧版单 map gob 快照在 4 MiB 以内保持
+兼容；更大的旧快照应先用旧版库读取并重新保存为新格式。

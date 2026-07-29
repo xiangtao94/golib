@@ -2,10 +2,13 @@ package gcache
 
 import (
 	"bytes"
+	"encoding/binary"
+	"encoding/gob"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"sync"
 	"testing"
@@ -265,6 +268,56 @@ func TestCacheLoadRejectsSnapshotLargerThanCapacityWithoutMutation(t *testing.T)
 	}
 }
 
+func TestCacheLoadRejectsDeclaredEntryCountBeforeDecodingEntries(t *testing.T) {
+	var encoded bytes.Buffer
+	encoded.Write([]byte("gcache\x00\x02"))
+	if err := binary.Write(&encoded, binary.BigEndian, uint64(3)); err != nil {
+		t.Fatalf("write entry count: %v", err)
+	}
+
+	cache := NewWithMaxEntries[string](NoExpiration, 0, 1, 2)
+	err := cache.Load(&encoded)
+
+	if !errors.Is(err, ErrSnapshotTooLarge) {
+		t.Fatalf("Load() error = %v, want ErrSnapshotTooLarge", err)
+	}
+}
+
+func TestCacheLoadAcceptsSmallLegacySnapshot(t *testing.T) {
+	legacy := map[string]Item[string]{
+		"legacy": {Value: "value"},
+	}
+	var encoded bytes.Buffer
+	if err := gob.NewEncoder(&encoded).Encode(legacy); err != nil {
+		t.Fatalf("encode legacy snapshot: %v", err)
+	}
+
+	cache := New[string](NoExpiration, 0, 1)
+	if err := cache.Load(&encoded); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if value, found := cache.Get("legacy"); !found || value != "value" {
+		t.Fatalf("legacy value = %q, %v", value, found)
+	}
+}
+
+func TestCacheLoadRejectsLargeLegacySnapshotBeforeGobDecode(t *testing.T) {
+	legacy := map[string]Item[string]{
+		"large": {Value: strings.Repeat("x", (4<<20)+1)},
+	}
+	var encoded bytes.Buffer
+	if err := gob.NewEncoder(&encoded).Encode(legacy); err != nil {
+		t.Fatalf("encode legacy snapshot: %v", err)
+	}
+
+	cache := New[string](NoExpiration, 0, 1)
+	err := cache.Load(&encoded)
+
+	if !errors.Is(err, ErrSnapshotTooLarge) {
+		t.Fatalf("Load() error = %v, want ErrSnapshotTooLarge", err)
+	}
+}
+
 func TestCacheLoadWithLimitRejectsOversizedInput(t *testing.T) {
 	cache := New[string](NoExpiration, 0, 1)
 	err := cache.LoadWithLimit(strings.NewReader(strings.Repeat("x", 1025)), 1024)
@@ -357,6 +410,29 @@ func TestCacheCloseIsIdempotent(t *testing.T) {
 			t.Fatal("Close() returned before janitor stopped")
 		}
 	})
+}
+
+func TestAbandonedCacheRequestsJanitorStop(t *testing.T) {
+	janitor := abandonedCacheJanitor()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		runtime.GC()
+		select {
+		case <-janitor.done:
+			return
+		default:
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("abandoned cache did not request janitor shutdown")
+		}
+		runtime.Gosched()
+	}
+}
+
+//go:noinline
+func abandonedCacheJanitor() *janitor[string] {
+	cache := New[string](NoExpiration, time.Hour, 1)
+	return cache.janitor
 }
 
 func TestJanitorEvictionCallbackMayRequestClose(t *testing.T) {

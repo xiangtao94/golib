@@ -116,6 +116,10 @@ func (writer *gzipResponseWriter) decideCompression() {
 		return
 	}
 	writer.Header().Del("Content-Length")
+	if etag := strings.TrimSpace(writer.Header().Get("ETag")); etag != "" &&
+		!strings.HasPrefix(etag, "W/") {
+		writer.Header().Del("ETag")
+	}
 	writer.Header().Set("Content-Encoding", "gzip")
 	writer.gzipWriter = gzipWriterPool.Get().(*gzip.Writer)
 	writer.gzipWriter.Reset(writer.ResponseWriter)

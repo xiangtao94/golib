@@ -1,6 +1,7 @@
 package mcp
 
 import (
+	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -23,20 +24,15 @@ func (h *Handler) Register(r *gin.Engine) {
 			request = request.WithContext(h.ContextFn(request.Context(), request))
 		}
 		if h.isNewStatefulSession(request) {
-			h.sessionAdmissionMu.Lock()
-			defer h.sessionAdmissionMu.Unlock()
-			if h.closed {
-				http.Error(w, "MCP handler is closed", http.StatusServiceUnavailable)
+			admittedRequest, admissionID, rejection := h.admitSession(request)
+			if rejection != "" {
+				http.Error(w, rejection, http.StatusServiceUnavailable)
 				return
 			}
-			if activeSessionCount(h.Server) >= h.MaxActiveSessions {
-				http.Error(
-					w,
-					"maximum active MCP sessions reached",
-					http.StatusServiceUnavailable,
-				)
-				return
-			}
+			request = admittedRequest
+			defer func() {
+				h.finishSessionAdmission(admissionID, w.Header().Get(sessionIDHeader))
+			}()
 		}
 		streamable.ServeHTTP(w, request)
 	})
@@ -59,4 +55,76 @@ func activeSessionCount(server *officialmcp.Server) int {
 		count++
 	}
 	return count
+}
+
+func (h *Handler) admitSession(request *http.Request) (*http.Request, uint64, string) {
+	for {
+		h.sessionAdmissionMu.Lock()
+		if h.closed {
+			h.sessionAdmissionMu.Unlock()
+			return request, 0, "MCP handler is closed"
+		}
+		activeSessions := activeSessionCount(h.Server)
+		pendingAdmissions := len(h.sessionAdmissions)
+		if activeSessions+pendingAdmissions < h.MaxActiveSessions {
+			ctx, cancel := context.WithCancel(request.Context())
+			h.nextSessionAdmission++
+			admissionID := h.nextSessionAdmission
+			if h.sessionAdmissions == nil {
+				h.sessionAdmissions = make(map[uint64]context.CancelFunc)
+			}
+			h.sessionAdmissions[admissionID] = cancel
+			h.sessionAdmissionMu.Unlock()
+			return request.WithContext(ctx), admissionID, ""
+		}
+		if pendingAdmissions == 0 {
+			h.sessionAdmissionMu.Unlock()
+			return request, 0, "maximum active MCP sessions reached"
+		}
+		if h.sessionAdmissionChange == nil {
+			h.sessionAdmissionChange = make(chan struct{})
+		}
+		changed := h.sessionAdmissionChange
+		h.sessionAdmissionMu.Unlock()
+
+		select {
+		case <-changed:
+		case <-request.Context().Done():
+			return request, 0, "MCP session initialization canceled"
+		}
+	}
+}
+
+func (h *Handler) finishSessionAdmission(admissionID uint64, sessionID string) {
+	h.sessionAdmissionMu.Lock()
+	cancel := h.sessionAdmissions[admissionID]
+	delete(h.sessionAdmissions, admissionID)
+	if cancel != nil {
+		h.notifySessionAdmissionChangeLocked()
+	}
+	closed := h.closed
+	h.sessionAdmissionMu.Unlock()
+
+	if cancel != nil {
+		cancel()
+	}
+	if closed && sessionID != "" {
+		closeSessionByID(h.Server, sessionID)
+	}
+}
+
+func (h *Handler) notifySessionAdmissionChangeLocked() {
+	if h.sessionAdmissionChange != nil {
+		close(h.sessionAdmissionChange)
+	}
+	h.sessionAdmissionChange = make(chan struct{})
+}
+
+func closeSessionByID(server *officialmcp.Server, sessionID string) {
+	for session := range server.Sessions() {
+		if session.ID() == sessionID {
+			_ = session.Close()
+			return
+		}
+	}
 }
