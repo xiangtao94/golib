@@ -2,6 +2,7 @@
 package gcache
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/gob"
@@ -23,11 +24,19 @@ const (
 	DefaultExpiration time.Duration = 0
 	// DefaultMaxEntries bounds the number of values retained by a cache.
 	DefaultMaxEntries = 100_000
+	// DefaultMaxSnapshotBytes is the largest encoded snapshot accepted by
+	// default-capacity caches. Smaller caches use a proportionally smaller
+	// limit with a 1 MiB floor.
+	DefaultMaxSnapshotBytes int64 = 64 << 20
+
+	minSnapshotBytes             int64 = 1 << 20
+	defaultSnapshotBytesPerEntry int64 = 1 << 10
 )
 
 var (
-	ErrNotFound = errors.New("gcache: item not found")
-	ErrExists   = errors.New("gcache: item already exists")
+	ErrNotFound         = errors.New("gcache: item not found")
+	ErrExists           = errors.New("gcache: item already exists")
+	ErrSnapshotTooLarge = errors.New("gcache: snapshot exceeds load limits")
 )
 
 // Item is a serializable cache entry.
@@ -408,13 +417,36 @@ func (cache *Cache[V]) SaveFile(filename string) error {
 
 // Load adds unexpired items from reader without replacing current keys.
 func (cache *Cache[V]) Load(reader io.Reader) error {
+	return cache.LoadWithLimit(reader, cache.snapshotLoadLimit())
+}
+
+// LoadWithLimit adds unexpired items from a size-bounded encoded snapshot.
+// The snapshot must also contain no more entries than this cache can retain.
+func (cache *Cache[V]) LoadWithLimit(reader io.Reader, maxBytes int64) error {
 	if reader == nil {
 		return errors.New("gcache: load reader is required")
 	}
-	items := make(map[string]Item[V])
-	if err := gob.NewDecoder(reader).Decode(&items); err != nil {
+	if maxBytes <= 0 {
+		return errors.New("gcache: snapshot byte limit must be positive")
+	}
+	encoded, err := readSnapshot(reader, maxBytes)
+	if err != nil {
 		return err
 	}
+
+	items := make(map[string]Item[V], min(int(cache.state.maxEntries), 1_024))
+	if err := gob.NewDecoder(bytes.NewReader(encoded)).Decode(&items); err != nil {
+		return err
+	}
+	if int64(len(items)) > cache.state.maxEntries {
+		return fmt.Errorf(
+			"%w: contains %d entries, cache capacity is %d",
+			ErrSnapshotTooLarge,
+			len(items),
+			cache.state.maxEntries,
+		)
+	}
+
 	now := time.Now().UnixNano()
 	for key, item := range items {
 		if item.expiredAt(now) {
@@ -439,6 +471,51 @@ func (cache *Cache[V]) Load(reader io.Reader) error {
 	}
 	runtime.KeepAlive(cache)
 	return nil
+}
+
+func (cache *Cache[V]) snapshotLoadLimit() int64 {
+	if cache.state.maxEntries >=
+		DefaultMaxSnapshotBytes/defaultSnapshotBytesPerEntry {
+		return DefaultMaxSnapshotBytes
+	}
+	limit := cache.state.maxEntries * defaultSnapshotBytesPerEntry
+	if limit < minSnapshotBytes {
+		return minSnapshotBytes
+	}
+	return limit
+}
+
+func readSnapshot(reader io.Reader, maxBytes int64) ([]byte, error) {
+	if remaining, ok := reader.(interface{ Len() int }); ok &&
+		int64(remaining.Len()) > maxBytes {
+		return nil, fmt.Errorf(
+			"%w: encoded size %d exceeds byte limit %d",
+			ErrSnapshotTooLarge,
+			remaining.Len(),
+			maxBytes,
+		)
+	}
+
+	limited := &io.LimitedReader{R: reader, N: maxBytes}
+	encoded, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, err
+	}
+	if limited.N == 0 {
+		var extra [1]byte
+		read, readErr := io.ReadFull(reader, extra[:])
+		if read > 0 {
+			return nil, fmt.Errorf(
+				"%w: encoded size exceeds byte limit %d",
+				ErrSnapshotTooLarge,
+				maxBytes,
+			)
+		}
+		if readErr != nil && !errors.Is(readErr, io.EOF) {
+			return nil, readErr
+		}
+	}
+	return encoded, nil
 }
 
 // LoadFile adds unexpired items stored in filename.

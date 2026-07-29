@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -236,6 +237,53 @@ func TestCacheSaveLoadRoundTrip(t *testing.T) {
 	}
 	if value, found := destination.Get("new"); !found || value != "loaded" {
 		t.Fatalf("loaded value = %q, %v", value, found)
+	}
+}
+
+func TestCacheLoadRejectsSnapshotLargerThanCapacityWithoutMutation(t *testing.T) {
+	source := NewWithMaxEntries[string](NoExpiration, 0, 1, 4)
+	for index := range 4 {
+		source.Set(fmt.Sprintf("source-%d", index), "value", DefaultExpiration)
+	}
+	var encoded bytes.Buffer
+	if err := source.Save(&encoded); err != nil {
+		t.Fatalf("Save() error = %v", err)
+	}
+
+	destination := NewWithMaxEntries[string](NoExpiration, 0, 1, 2)
+	destination.Set("existing", "preserved", DefaultExpiration)
+	err := destination.Load(&encoded)
+
+	if !errors.Is(err, ErrSnapshotTooLarge) {
+		t.Fatalf("Load() error = %v, want ErrSnapshotTooLarge", err)
+	}
+	if value, found := destination.Get("existing"); !found || value != "preserved" {
+		t.Fatalf("existing value = %q, %v", value, found)
+	}
+	if got := destination.Len(); got != 1 {
+		t.Fatalf("Len() = %d, want unchanged cache length 1", got)
+	}
+}
+
+func TestCacheLoadWithLimitRejectsOversizedInput(t *testing.T) {
+	cache := New[string](NoExpiration, 0, 1)
+	err := cache.LoadWithLimit(strings.NewReader(strings.Repeat("x", 1025)), 1024)
+
+	if !errors.Is(err, ErrSnapshotTooLarge) {
+		t.Fatalf("LoadWithLimit() error = %v, want ErrSnapshotTooLarge", err)
+	}
+}
+
+func TestCacheSnapshotLimitDoesNotOverflowAtLargeCapacity(t *testing.T) {
+	maxEntries := int(^uint(0) >> 1)
+	cache := NewWithMaxEntries[string](NoExpiration, 0, 1, maxEntries)
+
+	if got := cache.snapshotLoadLimit(); got != DefaultMaxSnapshotBytes {
+		t.Fatalf(
+			"snapshotLoadLimit() = %d, want %d",
+			got,
+			DefaultMaxSnapshotBytes,
+		)
 	}
 }
 

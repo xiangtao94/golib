@@ -28,3 +28,8 @@ next, err := counts.Update("requests", func(current int) (int, error) {
 
 清理间隔大于零时会启动过期项 janitor。正常生命周期中应调用 `Close`；
 Go 1.26 的 `runtime.AddCleanup` 仅作为遗漏关闭时的兜底。
+
+`Load` 在解码前限制快照字节数，并拒绝条目数超过目标缓存容量的快照，
+避免恢复过程绕过运行时容量预算。默认字节上限按容量估算，最小 1 MiB、
+最大 64 MiB；受信任的大值快照可显式调用 `LoadWithLimit` 提高字节上限，
+条目数上限仍不可绕过。现有 `encoding/gob` 快照格式保持兼容。
