@@ -116,8 +116,9 @@ func (c *Cycle) Start(parent context.Context) {
 	entries := append([]*Entry(nil), c.entries...)
 	for _, entry := range entries {
 		for range entry.Concurrency {
-			c.wg.Add(1)
-			go c.run(runCtx, entry)
+			c.wg.Go(func() {
+				c.run(runCtx, entry)
+			})
 		}
 	}
 	c.mu.Unlock()
@@ -159,8 +160,6 @@ func (c *Cycle) Stop(ctx context.Context) error {
 }
 
 func (c *Cycle) run(ctx context.Context, entry *Entry) {
-	defer c.wg.Done()
-
 	for {
 		if ctx.Err() != nil {
 			return

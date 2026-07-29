@@ -92,8 +92,8 @@ func configType(options Options) string {
 }
 
 func isMissingFile(err error) bool {
-	var notFound viper.ConfigFileNotFoundError
-	return errors.As(err, &notFound) || errors.Is(err, fs.ErrNotExist)
+	_, notFound := errors.AsType[viper.ConfigFileNotFoundError](err)
+	return notFound || errors.Is(err, fs.ErrNotExist)
 }
 
 func configKeys(valueType reflect.Type, prefix string) ([]string, error) {

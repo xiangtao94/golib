@@ -116,7 +116,7 @@ func NewClient(ctx context.Context, config Config) (*Client, error) {
 	api := awss3.NewFromConfig(awsConfig, func(options *awss3.Options) {
 		options.UsePathStyle = config.UsePathStyle
 		if config.Endpoint != "" {
-			options.BaseEndpoint = aws.String(strings.TrimRight(config.Endpoint, "/"))
+			options.BaseEndpoint = new(strings.TrimRight(config.Endpoint, "/"))
 		}
 	})
 
@@ -182,8 +182,8 @@ func (client *Client) PresignGetObject(
 	result, err := client.presigner.PresignGetObject(
 		ctx,
 		&awss3.GetObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
+			Bucket: new(bucket),
+			Key:    new(key),
 		},
 		awss3.WithPresignExpires(expiry),
 	)
@@ -210,8 +210,8 @@ func (client *Client) PresignPutObject(
 	result, err := client.presigner.PresignPutObject(
 		ctx,
 		&awss3.PutObjectInput{
-			Bucket: aws.String(bucket),
-			Key:    aws.String(key),
+			Bucket: new(bucket),
+			Key:    new(key),
 		},
 		awss3.WithPresignExpires(expiry),
 	)
@@ -232,8 +232,8 @@ func (client *Client) StatObject(
 	}
 
 	result, err := client.api.HeadObject(ctx, &awss3.HeadObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	})
 	if err != nil {
 		return ObjectInfo{}, wrapOperationError("stat", bucket, key, err)

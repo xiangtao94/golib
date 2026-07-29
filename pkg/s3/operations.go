@@ -74,7 +74,7 @@ func (client *Client) CreateBucket(ctx context.Context, bucket string) error {
 	}
 
 	_, err := client.api.HeadBucket(ctx, &awss3.HeadBucketInput{
-		Bucket: aws.String(bucket),
+		Bucket: new(bucket),
 	})
 	if err == nil {
 		return nil
@@ -84,7 +84,7 @@ func (client *Client) CreateBucket(ctx context.Context, bucket string) error {
 		return headErr
 	}
 
-	input := &awss3.CreateBucketInput{Bucket: aws.String(bucket)}
+	input := &awss3.CreateBucketInput{Bucket: new(bucket)}
 	// AWS requires LocationConstraint outside us-east-1. Custom endpoints
 	// derive placement from their own endpoint and reject AWS region names in
 	// some implementations, so no AWS location payload is sent to them.
@@ -130,14 +130,14 @@ func (client *Client) PutObject(
 	}
 
 	input := &transfermanager.UploadObjectInput{
-		Bucket:      aws.String(bucket),
-		Key:         aws.String(key),
+		Bucket:      new(bucket),
+		Key:         new(key),
 		Body:        body,
-		ContentType: aws.String(normalized.ContentType),
+		ContentType: new(normalized.ContentType),
 		Metadata:    cloneMetadata(normalized.Metadata),
 	}
 	if size >= 0 {
-		input.ContentLength = aws.Int64(size)
+		input.ContentLength = new(size)
 	}
 	if normalized.ServerSideEncryption != EncryptionNone {
 		input.ServerSideEncryption = transfertypes.ServerSideEncryption(
@@ -145,7 +145,7 @@ func (client *Client) PutObject(
 		)
 	}
 	if normalized.KMSKeyID != "" {
-		input.SSEKMSKeyID = aws.String(normalized.KMSKeyID)
+		input.SSEKMSKeyID = new(normalized.KMSKeyID)
 	}
 
 	result, err := client.transfers.UploadObject(ctx, input)
@@ -205,8 +205,8 @@ func (client *Client) GetObject(
 	}
 
 	result, err := client.api.GetObject(ctx, &awss3.GetObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	})
 	if err != nil {
 		return nil, wrapOperationError("get", bucket, key, err)
@@ -279,8 +279,8 @@ func (client *Client) DeleteObject(
 		return err
 	}
 	_, err := client.api.DeleteObject(ctx, &awss3.DeleteObjectInput{
-		Bucket: aws.String(bucket),
-		Key:    aws.String(key),
+		Bucket: new(bucket),
+		Key:    new(key),
 	})
 	return wrapOperationError("delete", bucket, key, err)
 }
@@ -315,14 +315,14 @@ func (client *Client) ListObjects(
 	}
 
 	input := &awss3.ListObjectsV2Input{
-		Bucket: aws.String(bucket),
-		Prefix: aws.String(options.Prefix),
+		Bucket: new(bucket),
+		Prefix: new(options.Prefix),
 	}
 	if !options.Recursive {
-		input.Delimiter = aws.String("/")
+		input.Delimiter = new("/")
 	}
 	if options.PageSize > 0 {
-		input.MaxKeys = aws.Int32(options.PageSize)
+		input.MaxKeys = new(options.PageSize)
 	}
 
 	paginator := awss3.NewListObjectsV2Paginator(client.api, input)
@@ -370,9 +370,9 @@ func (client *Client) CopyObject(
 	}
 
 	result, err := client.api.CopyObject(ctx, &awss3.CopyObjectInput{
-		Bucket:     aws.String(destinationBucket),
-		Key:        aws.String(destinationKey),
-		CopySource: aws.String(url.PathEscape(sourceBucket + "/" + sourceKey)),
+		Bucket:     new(destinationBucket),
+		Key:        new(destinationKey),
+		CopySource: new(url.PathEscape(sourceBucket + "/" + sourceKey)),
 	})
 	if err != nil {
 		return CopyResult{}, wrapOperationError(

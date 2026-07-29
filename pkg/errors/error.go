@@ -137,8 +137,7 @@ func cloneDetails(details map[string]any) map[string]any {
 // From extracts a public Error or returns a safe internal fallback that wraps
 // the original cause for logs and errors.Is/errors.As.
 func From(err error) *Error {
-	var public *Error
-	if stderrors.As(err, &public) {
+	if public, ok := stderrors.AsType[*Error](err); ok {
 		return public
 	}
 	return ErrInternal.Wrap(err)

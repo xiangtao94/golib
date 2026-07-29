@@ -164,7 +164,6 @@ func (c *Cron) Run(ctx context.Context) {
 }
 
 func (c *Cron) runWithRecovery(ctx context.Context, entry *Entry) {
-	defer c.jobs.Done()
 	defer func() {
 		if recovered := recover(); recovered != nil {
 			zlog.Errorf(ctx, "cron job panic: %v\nstack:\n%s", recovered, debug.Stack())
@@ -221,8 +220,9 @@ func (c *Cron) nextWaitAndRunDue(ctx context.Context) time.Duration {
 		}
 		entry.Prev = entry.Next
 		entry.Next = entry.Schedule.Next(now)
-		c.jobs.Add(1)
-		go c.runWithRecovery(ctx, entry)
+		c.jobs.Go(func() {
+			c.runWithRecovery(ctx, entry)
+		})
 	}
 	sort.Sort(byTime(c.entries))
 	if len(c.entries) == 0 || c.entries[0].Next.IsZero() {

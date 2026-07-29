@@ -60,8 +60,7 @@ func wrapOperationError(operation string, bucket string, key string, err error) 
 }
 
 func classifyError(err error) error {
-	var responseError *smithyhttp.ResponseError
-	if errors.As(err, &responseError) {
+	if responseError, ok := errors.AsType[*smithyhttp.ResponseError](err); ok {
 		switch responseError.HTTPStatusCode() {
 		case http.StatusNotFound:
 			return ErrNotFound
@@ -72,8 +71,7 @@ func classifyError(err error) error {
 		}
 	}
 
-	var apiError smithy.APIError
-	if errors.As(err, &apiError) {
+	if apiError, ok := errors.AsType[smithy.APIError](err); ok {
 		switch apiError.ErrorCode() {
 		case "NoSuchBucket", "NoSuchKey", "NotFound", "404":
 			return ErrNotFound
@@ -87,8 +85,7 @@ func classifyError(err error) error {
 }
 
 func errorCode(err error) string {
-	var apiError smithy.APIError
-	if errors.As(err, &apiError) {
+	if apiError, ok := errors.AsType[smithy.APIError](err); ok {
 		return apiError.ErrorCode()
 	}
 	return ""
