@@ -42,4 +42,4 @@ middleware.RegisterMetrics(engine, metrics)
 
 SSE route 使用 `UploadEventStream` 设置 transport header；跨域策略统一由 `NewCORS` 管理。
 
-`golib.Bootstraps` 会自动安装 `RequestID`，手动组装 middleware 时才需显式注册。业务日志从 `ctx.Request.Context()` 读取 request ID；access log 自定义字段使用 `middleware.AddAccessFields(ctx, fields...)`。
+`golib.Bootstrap` 会自动安装 `RequestID`，手动组装 middleware 时才需显式注册。业务日志从 `ctx.Request.Context()` 读取 request ID；access log 自定义字段使用 `middleware.AddAccessFields(ctx, fields...)`。

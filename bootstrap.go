@@ -25,75 +25,60 @@ import (
 
 var ErrNilContext = errors.New("golib: nil context")
 
-type BootstrapOption func(engine *gin.Engine) error
+type BootstrapConfig struct {
+	AppName  string
+	Language string
+	Log      *zlog.LogConfig
 
-// 1. 应用名称
-func WithAppName(appName string) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		env.SetAppName(appName)
-		return nil
-	}
+	EnableAccessLog bool
+	AccessLog       middleware.AccessLoggerConfig
+
+	EnableRecovery bool
+	Recovery       gin.RecoveryFunc
+
+	EnablePrometheus bool
+	Collectors       []prometheus.Collector
 }
 
-// 2. 国际化环境
-func WithLang(lang string) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		env.SetLanguage(lang)
-		return nil
+func Bootstrap(engine *gin.Engine, config BootstrapConfig) error {
+	if engine == nil {
+		return errors.New("golib: nil engine")
 	}
-}
-
-// 3. 日志
-func WithZlog(conf zlog.LogConfig) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		if conf.AppName == "" {
-			conf.AppName = env.GetAppName()
+	if config.AppName != "" {
+		env.SetAppName(config.AppName)
+	}
+	if config.Language != "" {
+		env.SetLanguage(config.Language)
+	}
+	if config.Log != nil {
+		logConfig := *config.Log
+		if logConfig.AppName == "" {
+			logConfig.AppName = env.GetAppName()
 		}
-		_, err := zlog.InitLog(conf)
-		return err
+		if _, err := zlog.InitLog(logConfig); err != nil {
+			return err
+		}
 	}
-}
 
-// 4. Access Log - 支持可选配置
-func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		middleware.RegistryAccessLog(engine, conf...)
-		return nil
+	engine.Use(middleware.RequestID())
+	if config.EnableAccessLog {
+		engine.Use(middleware.AccessLog(config.AccessLog))
 	}
-}
-
-// 5. Recovery
-func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		engine.Use(middleware.Recovery(zlog.NewLoggerWithSkip(1), handler))
-		return nil
+	if config.EnableRecovery {
+		engine.Use(middleware.Recovery(
+			zlog.NewLoggerWithSkip(1),
+			config.Recovery,
+		))
 	}
-}
-
-// 6. Prometheus
-func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
-	return func(engine *gin.Engine) error {
+	if config.EnablePrometheus {
 		metrics, err := middleware.NewMetrics(middleware.MetricsConfig{
 			AppName:    env.GetAppName(),
-			Collectors: cs,
+			Collectors: config.Collectors,
 		})
 		if err != nil {
 			return err
 		}
 		middleware.RegisterMetrics(engine, metrics)
-		return nil
-	}
-}
-
-func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) error {
-	engine.Use(middleware.RequestID())
-	for _, opt := range opts {
-		if opt == nil {
-			continue
-		}
-		if err := opt(engine); err != nil {
-			return err
-		}
 	}
 	return nil
 }

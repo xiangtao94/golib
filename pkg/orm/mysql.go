@@ -198,7 +198,7 @@ func (l *ormLogger) Trace(ctx context.Context, begin time.Time, fc func() (strin
 	fields = append(fields,
 		zlog.String("sql", sql),
 		zlog.Int64("rows", rows),
-		zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(begin, end), "ms")),
+		zlog.String("cost", fmt.Sprintf("%vms", end.Sub(begin).Seconds()*1000)),
 	)
 	l.logger.Debug(msg, fields...)
 }

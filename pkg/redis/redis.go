@@ -134,7 +134,7 @@ func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%vms", time.Since(start).Seconds()*1000)))
 		r.logger.Debug(msg, fields...)
 		return err
 	}
@@ -155,7 +155,7 @@ func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%vms", time.Since(start).Seconds()*1000)))
 		r.logger.Debug(msg, fields...)
 		return err
 	}

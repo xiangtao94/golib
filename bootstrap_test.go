@@ -12,16 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBootstrapsDoesNotRegisterPprofByDefault(t *testing.T) {
+func TestBootstrapInstallsRequestIDWithoutRegisteringPprof(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 
-	Bootstraps(engine)
+	require.NoError(t, Bootstrap(engine, BootstrapConfig{}))
+	engine.GET("/", func(ctx *gin.Context) {
+		ctx.Status(http.StatusNoContent)
+	})
 
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/debug/pprof/", nil))
 
 	require.Equal(t, http.StatusNotFound, response.Code)
+
+	response = httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/", nil))
+	require.NotEmpty(t, response.Header().Get("X-Request-ID"))
 }
 
 func TestDefaultHTTPServerConfigHasDefensiveTimeouts(t *testing.T) {
