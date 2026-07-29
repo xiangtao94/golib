@@ -3,6 +3,8 @@ package gcache
 import (
 	"bytes"
 	"errors"
+	"os"
+	"path/filepath"
 	"sync"
 	"testing"
 	"testing/synctest"
@@ -135,6 +137,18 @@ func TestCacheBoundsEntries(t *testing.T) {
 	}
 }
 
+func TestCacheUsesFullGlobalCapacityAcrossShards(t *testing.T) {
+	const capacity = 100
+	cache := NewWithMaxEntries[int](NoExpiration, 0, 16, capacity)
+	for index := range capacity {
+		cache.Set(string(rune(index)), index, DefaultExpiration)
+	}
+
+	if got := cache.Len(); got != capacity {
+		t.Fatalf("Len() = %d, want full global capacity %d", got, capacity)
+	}
+}
+
 func TestCacheItemsAreSnapshotAndFlushClears(t *testing.T) {
 	cache := New[string](NoExpiration, 0, 3)
 	cache.Set("a", "one", DefaultExpiration)
@@ -201,11 +215,75 @@ func TestCacheSaveLoadRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCacheSaveFileLoadFileRoundTrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.gob")
+	source := New[string](NoExpiration, 0, 2)
+	source.Set("saved", "value", DefaultExpiration)
+
+	if err := source.SaveFile(path); err != nil {
+		t.Fatalf("SaveFile() error = %v", err)
+	}
+	destination := New[string](NoExpiration, 0, 2)
+	if err := destination.LoadFile(path); err != nil {
+		t.Fatalf("LoadFile() error = %v", err)
+	}
+
+	if value, found := destination.Get("saved"); !found || value != "value" {
+		t.Fatalf("loaded value = %q, %v", value, found)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(path) {
+		t.Fatalf("persistence files = %v, want only %q", entries, filepath.Base(path))
+	}
+}
+
+func TestCacheSaveFileFailureDoesNotReplaceDestination(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "cache.gob")
+	if err := os.WriteFile(path, []byte("original"), 0o600); err != nil {
+		t.Fatalf("WriteFile() error = %v", err)
+	}
+	cache := New[any](NoExpiration, 0, 1)
+	cache.Set("unsupported", func() {}, DefaultExpiration)
+
+	if err := cache.SaveFile(path); err == nil {
+		t.Fatal("SaveFile() error = nil, want gob encoding error")
+	}
+	content, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("ReadFile() error = %v", err)
+	}
+	if string(content) != "original" {
+		t.Fatalf("destination content = %q, want original", content)
+	}
+	entries, err := os.ReadDir(filepath.Dir(path))
+	if err != nil {
+		t.Fatalf("ReadDir() error = %v", err)
+	}
+	if len(entries) != 1 || entries[0].Name() != filepath.Base(path) {
+		t.Fatalf("persistence files after failure = %v", entries)
+	}
+}
+
 func TestCacheCloseIsIdempotent(t *testing.T) {
 	synctest.Test(t, func(t *testing.T) {
 		cache := New[string](time.Minute, time.Hour, 1)
+		janitor := cache.janitor
+		if cache.cleanup == nil || janitor == nil {
+			t.Fatal("New() did not install cleanup ownership")
+		}
 		cache.Close()
 		cache.Close()
+		if cache.cleanup != nil || cache.janitor != nil {
+			t.Fatal("Close() retained cleanup ownership")
+		}
+		select {
+		case <-janitor.done:
+		default:
+			t.Fatal("Close() returned before janitor stopped")
+		}
 	})
 }
 
