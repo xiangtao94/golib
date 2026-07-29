@@ -92,6 +92,44 @@ func TestDisabledDebugLoggerDoesNotAllocateContextFields(t *testing.T) {
 	require.Zero(t, allocations)
 }
 
+func TestDisabledSugaredAndAccessLoggersDoNotAllocateContextFields(t *testing.T) {
+	_, err := InitLog(LogConfig{
+		Level:  "error",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, CloseLogger()) })
+	ctx := context.Background()
+	Debugf(ctx, "warm cache")
+	AccessInfo(ctx)
+
+	debugAllocations := testing.AllocsPerRun(1_000, func() {
+		Debugf(ctx, "disabled")
+	})
+	accessAllocations := testing.AllocsPerRun(1_000, func() {
+		AccessInfo(ctx)
+	})
+
+	require.Zero(t, debugAllocations)
+	require.Zero(t, accessAllocations)
+}
+
+func TestPanicLoggerStillPanicsWhenPanicLevelIsDisabled(t *testing.T) {
+	_, err := InitLog(LogConfig{
+		Level:  "fatal",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, CloseLogger()) })
+
+	require.Panics(t, func() {
+		PanicLogger(context.Background(), "panic contract")
+	})
+	require.Panics(t, func() {
+		Panic(context.Background(), "panic contract")
+	})
+}
+
 func TestLoggerCacheOnlyRetainsCommonCallerSkips(t *testing.T) {
 	_, err := InitLog(LogConfig{
 		Level:  "error",

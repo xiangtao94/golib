@@ -11,6 +11,10 @@ cache.Set("user:42", "active", gcache.DefaultExpiration)
 status, found := cache.Get("user:42")
 ```
 
+`New` 默认最多保留 100,000 条记录；需要更小的内存预算时使用
+`NewWithMaxEntries`。容量到达上限后会从目标分片淘汰一条记录，避免 key
+持续增长拖垮进程。读取过期项会立即删除该项，即使没有启动 janitor。
+
 需要原子读改写时使用 `Update`，它替代了按每种数字类型重复定义的
 `IncrementInt`、`IncrementFloat64` 等接口：
 

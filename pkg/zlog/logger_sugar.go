@@ -11,6 +11,7 @@ import (
 	"context"
 
 	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
 )
 
 var (
@@ -20,6 +21,12 @@ var (
 /*---------------sugar Logger-------------------*/
 
 func GetGlobalLogger() *zap.SugaredLogger {
+	loggerLifecycleMu.RLock()
+	logger := globalLogger
+	loggerLifecycleMu.RUnlock()
+	if logger != nil {
+		return logger
+	}
 	loggerLifecycleMu.Lock()
 	defer loggerLifecycleMu.Unlock()
 	if globalLogger != nil {
@@ -29,72 +36,97 @@ func GetGlobalLogger() *zap.SugaredLogger {
 	return globalLogger
 }
 
-func sugaredLogger(ctx context.Context) *zap.SugaredLogger {
-	if ctx == nil {
-		return NewLoggerWithSkip(1).Sugar()
+func sugaredLoggerForLevel(
+	ctx context.Context,
+	level zapcore.Level,
+) (*zap.SugaredLogger, bool) {
+	logger := NewLoggerWithSkip(1)
+	if !logger.Core().Enabled(level) {
+		return nil, false
 	}
-	return LoggerWithContext(NewLoggerWithSkip(1), ctx).Sugar()
+	return LoggerWithContext(logger, ctx).Sugar(), true
 }
 
 func Debugf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Debugf(format, args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.DebugLevel)
+	if enabled {
+		logger.Debugf(format, args...)
+	}
 }
 
 func Info(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Info(args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.InfoLevel)
+	if enabled {
+		logger.Info(args...)
+	}
 }
 
 func Infof(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Infof(format, args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.InfoLevel)
+	if enabled {
+		logger.Infof(format, args...)
+	}
 }
 
 func Warn(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Warn(args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.WarnLevel)
+	if enabled {
+		logger.Warn(args...)
+	}
 }
 
 func Warnf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Warnf(format, args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.WarnLevel)
+	if enabled {
+		logger.Warnf(format, args...)
+	}
 }
 
 func Error(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Error(args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.ErrorLevel)
+	if enabled {
+		logger.Error(args...)
+	}
 }
 
 func Errorf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Errorf(format, args...)
+	logger, enabled := sugaredLoggerForLevel(ctx, zap.ErrorLevel)
+	if enabled {
+		logger.Errorf(format, args...)
+	}
 }
 
 func Panic(ctx context.Context, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Panic(args...)
+	LoggerWithContext(NewLoggerWithSkip(1), ctx).Sugar().Panic(args...)
 }
 
 func Panicf(ctx context.Context, format string, args ...interface{}) {
 	if noLog(ctx) {
 		return
 	}
-	sugaredLogger(ctx).Panicf(format, args...)
+	LoggerWithContext(NewLoggerWithSkip(1), ctx).Sugar().Panicf(format, args...)
 }

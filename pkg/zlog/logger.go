@@ -59,7 +59,7 @@ var (
 	baseZapCore    zapcore.Core
 	baseAccessCore zapcore.Core
 
-	loggerLifecycleMu sync.Mutex
+	loggerLifecycleMu sync.RWMutex
 	bufferedWriters   []*zapcore.BufferedWriteSyncer
 	logClosers        []io.Closer
 )

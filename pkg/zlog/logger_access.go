@@ -19,6 +19,12 @@ var (
 
 // GetAccessLogger 获取 Access Logger 实例
 func GetAccessLogger() *zap.Logger {
+	loggerLifecycleMu.RLock()
+	logger := accessLogger
+	loggerLifecycleMu.RUnlock()
+	if logger != nil {
+		return logger
+	}
 	loggerLifecycleMu.Lock()
 	defer loggerLifecycleMu.Unlock()
 	if accessLogger == nil {
@@ -28,18 +34,21 @@ func GetAccessLogger() *zap.Logger {
 	return accessLogger
 }
 
-func zapAccessLogger(ctx context.Context) *zap.Logger {
-	m := GetAccessLogger()
-	if ctx == nil {
-		return m
+func zapAccessLogger(ctx context.Context) (*zap.Logger, bool) {
+	logger := GetAccessLogger()
+	if !logger.Core().Enabled(zap.InfoLevel) {
+		return nil, false
 	}
-	l := LoggerWithContext(m, ctx)
-	l = l.With(
-		String("uri", GetRequestURI(ctx)),
-	)
-	return l
+	logger = LoggerWithContext(logger, ctx)
+	if uri := GetRequestURI(ctx); uri != "" {
+		logger = logger.With(String("uri", uri))
+	}
+	return logger, true
 }
 
 func AccessInfo(ctx context.Context, fields ...zap.Field) {
-	zapAccessLogger(ctx).Info("accesslog", fields...)
+	logger, enabled := zapAccessLogger(ctx)
+	if enabled {
+		logger.Info("accesslog", fields...)
+	}
 }

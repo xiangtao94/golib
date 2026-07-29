@@ -168,7 +168,8 @@ client, err := elasticsearch.InitESClient(elasticsearch.ElasticConf{
 
 ## 注意事项
 
-- 批量插入限制为 3000 条文档
-- 所有操作都会自动生成唯一的文档ID（基于时间戳和UUID的SHA256哈希）
+- 批量插入按 3000 条和约 8 MiB 编码体积双重上限自动拆分请求；单文档超过
+  字节预算时直接返回错误
+- 所有批量插入文档都会自动生成 UUID
 - 客户端会自动处理超时检测和错误处理
 - 支持 Gin 框架的上下文传递，自动记录请求ID

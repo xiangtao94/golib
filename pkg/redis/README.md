@@ -219,17 +219,19 @@ client, err := redis.InitRedisClient(conf)
 
 ## 日志记录
 
-客户端会自动记录所有 Redis 操作的详细信息：
+启用 DEBUG 日志时，客户端记录 Redis 操作元数据：
 
-- Redis 命令
+- Redis 命令名和参数数量，不记录参数值
 - 执行时间
 - 错误信息（如果有）
 - 请求ID（集成 Gin 框架）
 
 ```go
 // 日志示例输出
-// {"level":"DEBUG","time":"2024-01-01 12:00:00.123","msg":"redis","command":"SET key value EX 3600","cost":"1.2ms","requestId":"req-123"}
+// {"level":"DEBUG","time":"2024-01-01 12:00:00.123","msg":"redis","command":"set","argumentCount":5,"cost":"1.2ms","requestId":"req-123"}
 ```
+
+DEBUG 未启用时不会格式化命令或构造日志字段。
 
 ## 完整示例
 
@@ -296,5 +298,5 @@ func main() {
 - 客户端支持单机、集群、哨兵等多种部署模式
 - 键名命名空间属于业务约定，应由调用方显式构造
 - 连接池会自动管理连接的创建和回收
-- 所有操作都会记录详细日志，便于调试和监控
+- DEBUG 模式记录命令元数据，不复制或暴露完整参数
 - 重试机制会自动处理网络抖动等临时故障
