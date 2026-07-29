@@ -21,13 +21,16 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
+const defaultConnectTimeout = 10 * time.Second
+
 // MilvusConf Milvus配置
 type MilvusConf struct {
-	Host     string `yaml:"host"`     // Milvus服务地址
-	Port     string `yaml:"port"`     // Milvus服务端口
-	Username string `yaml:"username"` // 用户名（可选）
-	Password string `yaml:"password"` // 密码（可选）
-	Database string `yaml:"database"` // 数据库名（可选）
+	Host           string        `yaml:"host"`           // Milvus服务地址
+	Port           string        `yaml:"port"`           // Milvus服务端口
+	Username       string        `yaml:"username"`       // 用户名（可选）
+	Password       string        `yaml:"password"`       // 密码（可选）
+	Database       string        `yaml:"database"`       // 数据库名（可选）
+	ConnectTimeout time.Duration `yaml:"connectTimeout"` // 连接超时，默认10秒
 }
 
 // MilvusClient Milvus客户端封装
@@ -44,6 +47,38 @@ type SearchResult struct {
 
 // NewMilvusClient 创建Milvus客户端
 func NewMilvusClient(config MilvusConf) (*MilvusClient, error) {
+	return newMilvusClient(context.Background(), config, milvusclient.New)
+}
+
+// NewMilvusClientContext creates a client within the caller's lifecycle.
+func NewMilvusClientContext(
+	ctx context.Context,
+	config MilvusConf,
+) (*MilvusClient, error) {
+	return newMilvusClient(ctx, config, milvusclient.New)
+}
+
+func newMilvusClient(
+	ctx context.Context,
+	config MilvusConf,
+	factory func(
+		context.Context,
+		*milvusclient.ClientConfig,
+	) (*milvusclient.Client, error),
+) (*MilvusClient, error) {
+	if ctx == nil {
+		return nil, errors.New("milvus: nil context")
+	}
+	if config.ConnectTimeout < 0 {
+		return nil, errors.New("milvus: connectTimeout must not be negative")
+	}
+	timeout := config.ConnectTimeout
+	if timeout == 0 {
+		timeout = defaultConnectTimeout
+	}
+	connectCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
 	connectParam := &milvusclient.ClientConfig{
 		Address:  fmt.Sprintf("%s:%s", config.Host, config.Port),
 		Username: config.Username,
@@ -51,7 +86,7 @@ func NewMilvusClient(config MilvusConf) (*MilvusClient, error) {
 		DBName:   config.Database,
 	}
 
-	c, err := milvusclient.New(context.Background(), connectParam)
+	c, err := factory(connectCtx, connectParam)
 	if err != nil {
 		return nil, fmt.Errorf("failed to create milvus client: %w", err)
 	}
@@ -204,6 +239,17 @@ func validateCollection(actual *entity.Collection, expected *entity.Schema, shar
 	return nil
 }
 
+// DropCollection removes a collection through the adapter's error contract.
+func (mc *MilvusClient) DropCollection(ctx context.Context, collectionName string) error {
+	if err := mc.Driver.DropCollection(
+		ctx,
+		milvusclient.NewDropCollectionOption(collectionName),
+	); err != nil {
+		return fmt.Errorf("drop collection %q: %w", collectionName, err)
+	}
+	return nil
+}
+
 // InsertVectors 插入向量数据
 func (mc *MilvusClient) InsertVectors(ctx context.Context, collectionName string, vectors [][]float32, extraFields ...column.Column) (column.Column, error) {
 	start := time.Now()
@@ -329,13 +375,7 @@ func buildSearchOption(collectionName string, topK int, vectors []entity.Vector,
 func (mc *MilvusClient) CreateIndex(ctx context.Context, collectionName, fieldName string, indexType milvusindex.IndexType, metricType entity.MetricType, params map[string]string) error {
 	start := time.Now()
 
-	completeParams := maps.Clone(params)
-	if completeParams == nil {
-		completeParams = make(map[string]string, 2)
-	}
-	completeParams[milvusindex.IndexTypeKey] = string(indexType)
-	completeParams[milvusindex.MetricTypeKey] = string(metricType)
-	idx := milvusindex.NewGenericIndex("", completeParams)
+	idx := NewIndexByType(indexType, metricType, params)
 
 	task, err := mc.Driver.CreateIndex(
 		ctx,
@@ -353,6 +393,56 @@ func (mc *MilvusClient) CreateIndex(ctx context.Context, collectionName, fieldNa
 	zlog.Infof(ctx, "index created successfully on %s.%s, type: %s, metric: %s, cost: %v",
 		collectionName, fieldName, indexType, metricType, time.Since(start))
 	return nil
+}
+
+// NewIndexByType builds an index without mutating the caller's parameter map.
+func NewIndexByType(
+	indexType milvusindex.IndexType,
+	metricType entity.MetricType,
+	params map[string]string,
+) milvusindex.Index {
+	completeParams := maps.Clone(params)
+	if completeParams == nil {
+		completeParams = make(map[string]string, 2)
+	}
+	completeParams[milvusindex.IndexTypeKey] = string(indexType)
+	completeParams[milvusindex.MetricTypeKey] = string(metricType)
+	return milvusindex.NewGenericIndex("", completeParams)
+}
+
+// CreateDefaultIndex applies the adapter's IVF_FLAT/L2/vector defaults.
+func (mc *MilvusClient) CreateDefaultIndex(
+	ctx context.Context,
+	collectionName string,
+) error {
+	return mc.CreateIndex(
+		ctx,
+		collectionName,
+		"vector",
+		milvusindex.IvfFlat,
+		entity.L2,
+		map[string]string{"nlist": "1024"},
+	)
+}
+
+// CreateHNSWIndex applies the adapter's HNSW/L2/vector defaults.
+func (mc *MilvusClient) CreateHNSWIndex(
+	ctx context.Context,
+	collectionName string,
+	m int,
+	efConstruction int,
+) error {
+	return mc.CreateIndex(
+		ctx,
+		collectionName,
+		"vector",
+		milvusindex.HNSW,
+		entity.L2,
+		map[string]string{
+			"M":              fmt.Sprintf("%d", m),
+			"efConstruction": fmt.Sprintf("%d", efConstruction),
+		},
+	)
 }
 
 // LoadCollection 加载集合到内存
@@ -376,6 +466,35 @@ func (mc *MilvusClient) LoadCollection(ctx context.Context, collectionName strin
 	return nil
 }
 
+// ReleaseCollection releases a loaded collection.
+func (mc *MilvusClient) ReleaseCollection(
+	ctx context.Context,
+	collectionName string,
+) error {
+	if err := mc.Driver.ReleaseCollection(
+		ctx,
+		milvusclient.NewReleaseCollectionOption(collectionName),
+	); err != nil {
+		return fmt.Errorf("release collection %q: %w", collectionName, err)
+	}
+	return nil
+}
+
+// GetCollectionStatistics returns provider statistics through the adapter.
+func (mc *MilvusClient) GetCollectionStatistics(
+	ctx context.Context,
+	collectionName string,
+) (map[string]string, error) {
+	stats, err := mc.Driver.GetCollectionStats(
+		ctx,
+		milvusclient.NewGetCollectionStatsOption(collectionName),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("get collection %q statistics: %w", collectionName, err)
+	}
+	return stats, nil
+}
+
 // DeleteByIds 根据ID删除数据
 func (mc *MilvusClient) DeleteByIds(ctx context.Context, collectionName string, ids []int64) error {
 	start := time.Now()
@@ -396,6 +515,48 @@ func (mc *MilvusClient) DeleteByIds(ctx context.Context, collectionName string, 
 	zlog.Infof(ctx, "deleted %d records from collection %s, cost: %v",
 		len(ids), collectionName, time.Since(start))
 	return nil
+}
+
+// DeleteByExpr deletes records matching expr.
+func (mc *MilvusClient) DeleteByExpr(
+	ctx context.Context,
+	collectionName string,
+	expr string,
+) error {
+	if _, err := mc.Driver.Delete(
+		ctx,
+		milvusclient.NewDeleteOption(collectionName).WithExpr(expr),
+	); err != nil {
+		return fmt.Errorf("delete from collection %q by expression: %w", collectionName, err)
+	}
+	return nil
+}
+
+// ListCollections lists collection names.
+func (mc *MilvusClient) ListCollections(ctx context.Context) ([]string, error) {
+	collections, err := mc.Driver.ListCollections(
+		ctx,
+		milvusclient.NewListCollectionOption(),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("list collections: %w", err)
+	}
+	return collections, nil
+}
+
+// DescribeCollection returns the SDK collection model.
+func (mc *MilvusClient) DescribeCollection(
+	ctx context.Context,
+	collectionName string,
+) (*entity.Collection, error) {
+	collection, err := mc.Driver.DescribeCollection(
+		ctx,
+		milvusclient.NewDescribeCollectionOption(collectionName),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("describe collection %q: %w", collectionName, err)
+	}
+	return collection, nil
 }
 
 // Flush 强制刷新集合数据到持久化存储
@@ -433,4 +594,34 @@ func (mc *MilvusClient) GetLoadingProgress(ctx context.Context, collectionName s
 	zlog.Infof(ctx, "got loading progress for collection %s: %d%%, cost: %v",
 		collectionName, progress, time.Since(start))
 	return progress, nil
+}
+
+// Query adapts the fluent SDK query options to ordinary arguments.
+func (mc *MilvusClient) Query(
+	ctx context.Context,
+	collectionName string,
+	expr string,
+	outputFields []string,
+) ([]column.Column, error) {
+	result, err := mc.Driver.Query(
+		ctx,
+		milvusclient.NewQueryOption(collectionName).
+			WithFilter(expr).
+			WithOutputFields(outputFields...),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query collection %q: %w", collectionName, err)
+	}
+	return []column.Column(result.Fields), nil
+}
+
+// Close releases the underlying client within the caller's shutdown budget.
+func (mc *MilvusClient) Close(ctx context.Context) error {
+	if ctx == nil {
+		return errors.New("milvus: nil context")
+	}
+	if mc == nil || mc.Driver == nil {
+		return nil
+	}
+	return mc.Driver.Close(ctx)
 }

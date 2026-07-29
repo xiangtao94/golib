@@ -1,13 +1,46 @@
 package milvus
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/milvus-io/milvus/client/v2/entity"
 	milvusindex "github.com/milvus-io/milvus/client/v2/index"
+	"github.com/milvus-io/milvus/client/v2/milvusclient"
 	"github.com/stretchr/testify/require"
 )
+
+func TestNewMilvusClientContextRejectsNilContext(t *testing.T) {
+	//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+	_, err := NewMilvusClientContext(nil, MilvusConf{})
+	require.EqualError(t, err, "milvus: nil context")
+}
+
+func TestMilvusClientConnectionAlwaysHasADeadline(t *testing.T) {
+	var remaining time.Duration
+	factory := func(
+		ctx context.Context,
+		_ *milvusclient.ClientConfig,
+	) (*milvusclient.Client, error) {
+		deadline, ok := ctx.Deadline()
+		require.True(t, ok)
+		remaining = time.Until(deadline)
+		return nil, errors.New("stop before network")
+	}
+
+	_, err := newMilvusClient(
+		context.Background(),
+		MilvusConf{ConnectTimeout: 250 * time.Millisecond},
+		factory,
+	)
+
+	require.ErrorContains(t, err, "stop before network")
+	require.Positive(t, remaining)
+	require.LessOrEqual(t, remaining, 250*time.Millisecond)
+}
 
 func TestValidateVectors(t *testing.T) {
 	tests := []struct {
@@ -37,6 +70,25 @@ func TestValidateVectors(t *testing.T) {
 			require.Equal(t, tt.wantDim, dimension)
 		})
 	}
+}
+
+func TestNewIndexByTypeDoesNotMutateParams(t *testing.T) {
+	params := map[string]string{"nlist": "1024"}
+
+	index := NewIndexByType(milvusindex.IvfFlat, entity.L2, params)
+
+	require.Equal(t, map[string]string{"nlist": "1024"}, params)
+	require.Equal(t, "1024", index.Params()["nlist"])
+	require.Equal(t, string(milvusindex.IvfFlat), index.Params()[milvusindex.IndexTypeKey])
+	require.Equal(t, string(entity.L2), index.Params()[milvusindex.MetricTypeKey])
+}
+
+func TestCloseRejectsNilContextWithoutDriver(t *testing.T) {
+	client := &MilvusClient{}
+
+	//lint:ignore SA1012 This test verifies that nil contexts are rejected.
+	require.EqualError(t, client.Close(nil), "milvus: nil context")
+	require.NoError(t, client.Close(context.Background()))
 }
 
 func TestMilvusClientRejectsInvalidInputBeforeCallingSDK(t *testing.T) {

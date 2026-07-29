@@ -25,13 +25,14 @@ results, err := client.SearchVectors(
 )
 ```
 
-不要依赖库内硬编码的 metric、vector 字段或 HNSW/IVF 参数。
-
-`MilvusClient` 只为有额外语义的操作提供方法，例如幂等 schema 校验、向量输入
-校验、搜索结果转换以及异步任务等待。普通 `DropCollection`、`Query` 等 SDK
-操作直接通过 `client.Driver` 调用，避免维护一层只记录日志和改写错误文本的包装。
-关闭连接时也直接传入调用方拥有的 context：
+需要完整控制时使用 `CreateIndex` 显式传入字段、metric 和参数；`CreateDefaultIndex`
+与 `CreateHNSWIndex` 是有意提供的默认策略快捷入口。`MilvusClient` 作为 Facade
+统一构造 SDK options、补充操作上下文错误，并保留 `Driver` 作为高级逃生口。
+创建连接时优先使用 `NewMilvusClientContext(ctx, config)`；连接始终受
+`connectTimeout` 约束，未配置时默认为 10 秒。旧的 `NewMilvusClient(config)`
+保留兼容并使用相同的默认超时。
+关闭连接时传入调用方拥有的 context：
 
 ```go
-err := client.Driver.Close(ctx)
+err := client.Close(ctx)
 ```
