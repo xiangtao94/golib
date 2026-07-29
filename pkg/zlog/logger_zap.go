@@ -18,6 +18,8 @@ var (
 	zapLoggerCache = make(map[int]*zap.Logger)
 )
 
+const maxCachedCallerSkip = 16
+
 // 通用 Logger 工厂，根据 skip 构造 Logger 实例, 定制化skip实例
 func NewLoggerWithSkip(skip int) *zap.Logger {
 	loggerLifecycleMu.Lock()
@@ -26,12 +28,16 @@ func NewLoggerWithSkip(skip int) *zap.Logger {
 }
 
 func newLoggerWithSkipLocked(skip int) *zap.Logger {
-	if logger, exists := zapLoggerCache[skip]; exists {
-		return logger
+	if skip >= 0 && skip <= maxCachedCallerSkip {
+		if logger, exists := zapLoggerCache[skip]; exists {
+			return logger
+		}
 	}
 	core := buildZapCore(false)
 	logger := zap.New(core, zap.Fields(), zap.WithCaller(true), zap.Development(), zap.AddCallerSkip(skip))
-	zapLoggerCache[skip] = logger
+	if skip >= 0 && skip <= maxCachedCallerSkip {
+		zapLoggerCache[skip] = logger
+	}
 	return logger
 }
 
@@ -47,7 +53,11 @@ func DebugLogger(ctx context.Context, msg string, fields ...zap.Field) {
 	if noLog(ctx) {
 		return
 	}
-	zapLogger(ctx).Debug(msg, fields...)
+	logger := NewLoggerWithSkip(1)
+	if !logger.Core().Enabled(zap.DebugLevel) {
+		return
+	}
+	LoggerWithContext(logger, ctx).Debug(msg, fields...)
 }
 
 func InfoLogger(ctx context.Context, msg string, fields ...zap.Field) {

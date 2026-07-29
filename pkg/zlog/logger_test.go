@@ -1,6 +1,7 @@
 package zlog
 
 import (
+	"context"
 	"testing"
 	"time"
 
@@ -72,4 +73,36 @@ func TestInitLogRejectsInvalidConfigWithoutReplacingCurrentLogger(t *testing.T) 
 	require.Same(t, current, GetGlobalLogger())
 	require.True(t, current.Desugar().Core().Enabled(zapcore.ErrorLevel))
 	require.False(t, current.Desugar().Core().Enabled(zapcore.InfoLevel))
+}
+
+func TestDisabledDebugLoggerDoesNotAllocateContextFields(t *testing.T) {
+	_, err := InitLog(LogConfig{
+		Level:  "error",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, CloseLogger()) })
+	ctx := context.Background()
+	DebugLogger(ctx, "warm cache")
+
+	allocations := testing.AllocsPerRun(1_000, func() {
+		DebugLogger(ctx, "disabled")
+	})
+
+	require.Zero(t, allocations)
+}
+
+func TestLoggerCacheOnlyRetainsCommonCallerSkips(t *testing.T) {
+	_, err := InitLog(LogConfig{
+		Level:  "error",
+		Stdout: false,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, CloseLogger()) })
+
+	for skip := 0; skip < 1_000; skip++ {
+		_ = NewLoggerWithSkip(skip)
+	}
+
+	require.LessOrEqual(t, len(zapLoggerCache), maxCachedCallerSkip+1)
 }

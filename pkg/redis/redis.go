@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/redis/go-redis/v9"
+	"go.uber.org/zap"
 
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
@@ -125,16 +126,20 @@ func (r *redisLogger) DialHook(hook redis.DialHook) redis.DialHook {
 
 func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 	return func(ctx context.Context, cmd redis.Cmder) error {
-		fields := append(r.commonFields(ctx),
-			zlog.String("command", cmd.String()),
-		)
-		msg := "redis"
 		start := time.Now()
 		err := hook(ctx, cmd)
+		if !r.logger.Core().Enabled(zap.DebugLevel) {
+			return err
+		}
+		msg := "redis"
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
+		fields := append(r.commonFields(ctx),
+			zlog.String("command", cmd.Name()),
+			zlog.Int("argumentCount", len(cmd.Args())),
+		)
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%vms", time.Since(start).Seconds()*1000)))
 		r.logger.Debug(msg, fields...)
 		return err
 	}
@@ -142,20 +147,27 @@ func (r *redisLogger) ProcessHook(hook redis.ProcessHook) redis.ProcessHook {
 
 func (r *redisLogger) ProcessPipelineHook(hook redis.ProcessPipelineHook) redis.ProcessPipelineHook {
 	return func(ctx context.Context, cmds []redis.Cmder) error {
-		cmdStrs := []string{}
-		for _, c := range cmds {
-			cmdStrs = append(cmdStrs, c.String())
-		}
-		fields := append(r.commonFields(ctx),
-			zlog.String("command", strings.Join(cmdStrs, ",")),
-		)
-		msg := "redis do success"
 		start := time.Now()
 		err := hook(ctx, cmds)
+		if !r.logger.Core().Enabled(zap.DebugLevel) {
+			return err
+		}
+		commandNames := make([]string, 0, len(cmds))
+		argumentCount := 0
+		for _, command := range cmds {
+			commandNames = append(commandNames, command.Name())
+			argumentCount += len(command.Args())
+		}
+		msg := "redis do success"
 		if err != nil {
 			msg = err.Error()
 		}
-		fields = append(fields, zlog.String("cost", fmt.Sprintf("%v%s", zlog.GetRequestCost(start, time.Now()), "ms")))
+		fields := append(r.commonFields(ctx),
+			zlog.Strings("commands", commandNames),
+			zlog.Int("commandCount", len(cmds)),
+			zlog.Int("argumentCount", argumentCount),
+		)
+		fields = append(fields, zlog.String("cost", fmt.Sprintf("%vms", time.Since(start).Seconds()*1000)))
 		r.logger.Debug(msg, fields...)
 		return err
 	}
