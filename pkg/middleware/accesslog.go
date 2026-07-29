@@ -148,6 +148,7 @@ func mergeWithDefaultAccessLog(userConf AccessLoggerConfig) AccessLoggerConfig {
 }
 
 func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
+	conf = mergeWithDefaultAccessLog(conf)
 	skipPaths := make(map[string]struct{}, len(conf.SkipPaths))
 	for _, path := range conf.SkipPaths {
 		skipPaths[path] = struct{}{}
@@ -221,7 +222,12 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 			fields = append(fields, zlog.String("responseBody", responseLog))
 		}
 
-		fields = append(fields, AppendCostTime(start, time.Now())...)
+		end := time.Now()
+		fields = append(fields,
+			zlog.String("startTime", start.Format("2006-01-02 15:04:05.000")),
+			zlog.String("endTime", end.Format("2006-01-02 15:04:05.000")),
+			zlog.String("cost", fmt.Sprintf("%vms", end.Sub(start).Seconds()*1000)),
+		)
 		fields = append(fields, getAccessFields(c)...)
 		zlog.AccessInfo(c.Request.Context(), fields...)
 	}
@@ -293,20 +299,4 @@ func getHeader(ctx *gin.Context, headers []string) string {
 		}
 	}
 	return strings.Join(values, "&")
-}
-
-func RegistryAccessLog(engine *gin.Engine, conf ...AccessLoggerConfig) {
-	logConf := DefaultAccessLoggerConfig()
-	if len(conf) > 0 {
-		logConf = mergeWithDefaultAccessLog(conf[0])
-	}
-	engine.Use(AccessLog(logConf))
-}
-
-func AppendCostTime(begin, end time.Time) []zlog.Field {
-	return []zlog.Field{
-		zlog.String("startTime", zlog.GetFormatRequestTime(begin)),
-		zlog.String("endTime", zlog.GetFormatRequestTime(end)),
-		zlog.String("cost", fmt.Sprintf("%vms", zlog.GetRequestCost(begin, end))),
-	}
 }
