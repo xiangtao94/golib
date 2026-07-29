@@ -149,58 +149,84 @@ func NewMySQLPrometheusCollector(client *gorm.DB, name string) (prometheus.Colle
 
 type ormLogger struct {
 	logger *zlog.Logger
+	level  logger.LogLevel
 }
 
 func newLogger() *ormLogger {
 	return &ormLogger{
 		logger: zlog.NewLoggerWithSkip(3),
+		level:  logger.Info,
 	}
 }
 
 // go-sql-driver error log
 func (l *ormLogger) Print(args ...interface{}) {
-	l.logger.Error(fmt.Sprint(args...), l.AppendCustomField(context.Background())...)
+	ctx := context.Background()
+	if zlog.ErrorEnabled(ctx) {
+		l.logger.Error(fmt.Sprint(args...), l.AppendCustomField(ctx)...)
+	}
 }
 
 func (l *ormLogger) LogMode(level logger.LogLevel) logger.Interface {
-	return l
+	configured := *l
+	configured.level = level
+	return &configured
 }
 
 // Info print info
 func (l *ormLogger) Info(ctx context.Context, msg string, data ...interface{}) {
+	if l.level < logger.Info || !zlog.DebugEnabled(ctx) {
+		return
+	}
 	m := fmt.Sprintf(msg, append([]interface{}{ormUtil.FileWithLineNum()}, data...)...)
 	l.logger.Debug(m, l.AppendCustomField(ctx)...)
 }
 
 // Warn print warn messages
 func (l *ormLogger) Warn(ctx context.Context, msg string, data ...interface{}) {
+	if l.level < logger.Warn || !zlog.WarnEnabled(ctx) {
+		return
+	}
 	m := fmt.Sprintf(msg, append([]interface{}{ormUtil.FileWithLineNum()}, data...)...)
 	l.logger.Warn(m, l.AppendCustomField(ctx)...)
 }
 
 // Error print error messages
 func (l *ormLogger) Error(ctx context.Context, msg string, data ...interface{}) {
+	if l.level < logger.Error || !zlog.ErrorEnabled(ctx) {
+		return
+	}
 	m := fmt.Sprintf(msg, append([]interface{}{ormUtil.FileWithLineNum()}, data...)...)
 	l.logger.Error(m, l.AppendCustomField(ctx)...)
 }
 
 // Trace print sql message
 func (l *ormLogger) Trace(ctx context.Context, begin time.Time, fc func() (string, int64), err error) {
-	end := time.Now()
-	// 请求是否成功
-	msg := "mysql"
 	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
-		// 没有找到记录不统计在请求错误中
-		msg = err.Error()
+		if l.level < logger.Error || !zlog.ErrorEnabled(ctx) {
+			return
+		}
+		sql, rows := fc()
+		l.logger.Error(err.Error(),
+			zlog.String("sql", sql),
+			zlog.Int64("rows", rows),
+			zlog.String("cost", fmt.Sprintf("%vms", time.Since(begin).Seconds()*1000)),
+			zlog.String("requestId", zlog.GetRequestID(ctx)),
+		)
+		return
 	}
+	if l.level < logger.Info || !zlog.DebugEnabled(ctx) {
+		return
+	}
+
 	sql, rows := fc()
 	fields := l.AppendCustomField(ctx)
 	fields = append(fields,
 		zlog.String("sql", sql),
 		zlog.Int64("rows", rows),
-		zlog.String("cost", fmt.Sprintf("%vms", end.Sub(begin).Seconds()*1000)),
+		zlog.String("cost", fmt.Sprintf("%vms", time.Since(begin).Seconds()*1000)),
 	)
-	l.logger.Debug(msg, fields...)
+	l.logger.Debug("mysql", fields...)
 }
 
 func (l *ormLogger) AppendCustomField(ctx context.Context) []zlog.Field {
