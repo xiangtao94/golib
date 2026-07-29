@@ -86,6 +86,25 @@ func TestValidateCollectionRejectsVectorDimensionMismatch(t *testing.T) {
 	require.ErrorContains(t, validateCollection(actual, expected, 1), `field "vector" does not match`)
 }
 
+func TestValidateCollectionPreservesTypeParameterNilness(t *testing.T) {
+	expected := entity.NewSchema().
+		WithName("vectors").
+		WithField(&entity.Field{Name: "id", DataType: entity.FieldTypeInt64})
+	actual := &entity.Collection{
+		Name:     "vectors",
+		ShardNum: 1,
+		Schema: entity.NewSchema().
+			WithName("vectors").
+			WithField(&entity.Field{
+				Name:       "id",
+				DataType:   entity.FieldTypeInt64,
+				TypeParams: map[string]string{},
+			}),
+	}
+
+	require.ErrorContains(t, validateCollection(actual, expected, 1), `field "id" does not match`)
+}
+
 func TestBuildSearchOptionIncludesExplicitANNContract(t *testing.T) {
 	annParam := milvusindex.NewHNSWAnnParam(64)
 	option := buildSearchOption(

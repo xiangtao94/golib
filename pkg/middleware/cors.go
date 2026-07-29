@@ -71,7 +71,7 @@ func NewCORS(config CORSConfig) (gin.HandlerFunc, error) {
 			return
 		}
 		if ctx.Request.Method == http.MethodOptions {
-			for _, header := range strings.Split(ctx.GetHeader("Access-Control-Request-Headers"), ",") {
+			for header := range strings.SplitSeq(ctx.GetHeader("Access-Control-Request-Headers"), ",") {
 				header = strings.ToLower(strings.TrimSpace(header))
 				if header == "" {
 					continue

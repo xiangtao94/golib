@@ -3,6 +3,7 @@ package errors
 
 import (
 	stderrors "errors"
+	"maps"
 	"net/http"
 	"strings"
 )
@@ -127,11 +128,7 @@ func cloneDetails(details map[string]any) map[string]any {
 	if len(details) == 0 {
 		return nil
 	}
-	clone := make(map[string]any, len(details))
-	for key, value := range details {
-		clone[key] = value
-	}
-	return clone
+	return maps.Clone(details)
 }
 
 // From extracts a public Error or returns a safe internal fallback that wraps

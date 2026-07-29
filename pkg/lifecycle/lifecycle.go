@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"sync"
 )
@@ -49,7 +50,7 @@ func New(hooks ...Hook) (*Manager, error) {
 		}
 	}
 	return &Manager{
-		hooks: append([]Hook(nil), hooks...),
+		hooks: slices.Clone(hooks),
 		done:  make(chan struct{}),
 	}, nil
 }
@@ -67,7 +68,7 @@ func (manager *Manager) Start(ctx context.Context) error {
 		return fmt.Errorf("%w: start from state %d", ErrInvalidState, currentState)
 	}
 	manager.state = stateStarting
-	hooks := append([]Hook(nil), manager.hooks...)
+	hooks := slices.Clone(manager.hooks)
 	manager.mu.Unlock()
 
 	started := make([]Hook, 0, len(hooks))
@@ -114,7 +115,7 @@ func (manager *Manager) Stop(ctx context.Context) error {
 		return fmt.Errorf("%w: stop while starting", ErrInvalidState)
 	case stateStarted:
 		manager.state = stateStopping
-		hooks := append([]Hook(nil), manager.started...)
+		hooks := slices.Clone(manager.started)
 		manager.mu.Unlock()
 
 		stopErr := stopHooks(ctx, hooks)

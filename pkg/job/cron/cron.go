@@ -5,7 +5,7 @@ import (
 	"log"
 	"os"
 	"runtime/debug"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -44,18 +44,17 @@ type Entry struct {
 	Spec     string
 }
 
-type byTime []*Entry
-
-func (entries byTime) Len() int      { return len(entries) }
-func (entries byTime) Swap(i, j int) { entries[i], entries[j] = entries[j], entries[i] }
-func (entries byTime) Less(i, j int) bool {
-	if entries[i].Next.IsZero() {
-		return false
+func compareEntryTime(left, right *Entry) int {
+	if left.Next.IsZero() {
+		if right.Next.IsZero() {
+			return 0
+		}
+		return 1
 	}
-	if entries[j].Next.IsZero() {
-		return true
+	if right.Next.IsZero() {
+		return -1
 	}
-	return entries[i].Next.Before(entries[j].Next)
+	return left.Next.Compare(right.Next)
 }
 
 func New() *Cron {
@@ -213,7 +212,7 @@ func (c *Cron) nextWaitAndRunDue(ctx context.Context) time.Duration {
 	now := c.now()
 
 	c.mu.Lock()
-	sort.Sort(byTime(c.entries))
+	slices.SortFunc(c.entries, compareEntryTime)
 	for _, entry := range c.entries {
 		if entry.Next.IsZero() || entry.Next.After(now) {
 			break
@@ -224,7 +223,7 @@ func (c *Cron) nextWaitAndRunDue(ctx context.Context) time.Duration {
 			c.runWithRecovery(ctx, entry)
 		})
 	}
-	sort.Sort(byTime(c.entries))
+	slices.SortFunc(c.entries, compareEntryTime)
 	if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
 		c.mu.Unlock()
 		return 24 * time.Hour

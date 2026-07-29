@@ -101,10 +101,7 @@ func (metrics *Metrics) Middleware() gin.HandlerFunc {
 		}
 		statusClass := strconv.Itoa(ctx.Writer.Status()/100) + "xx"
 		labels := []string{metrics.appName, statusClass, route, ctx.Request.Method}
-		responseSize := ctx.Writer.Size()
-		if responseSize < 0 {
-			responseSize = 0
-		}
+		responseSize := max(ctx.Writer.Size(), 0)
 		metrics.reqCount.WithLabelValues(labels...).Inc()
 		metrics.reqDuration.WithLabelValues(labels...).Observe(time.Since(start).Seconds())
 		metrics.reqSizeBytes.WithLabelValues(labels...).Observe(getRequestSize(ctx.Request))

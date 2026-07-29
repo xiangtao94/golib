@@ -9,7 +9,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
+	"slices"
 	"strings"
 	"time"
 
@@ -348,8 +348,8 @@ func (client *Client) ListObjects(
 			})
 		}
 	}
-	sort.Slice(objects, func(left int, right int) bool {
-		return objects[left].Key < objects[right].Key
+	slices.SortFunc(objects, func(left, right ObjectInfo) int {
+		return strings.Compare(left.Key, right.Key)
 	})
 	return objects, nil
 }

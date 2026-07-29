@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"runtime/debug"
+	"slices"
 	"sync"
 	"time"
 
@@ -113,7 +114,7 @@ func (c *Cycle) Start(parent context.Context) {
 	c.done = make(chan struct{})
 	c.running = true
 	done := c.done
-	entries := append([]*Entry(nil), c.entries...)
+	entries := slices.Clone(c.entries)
 	for _, entry := range entries {
 		for range entry.Concurrency {
 			c.wg.Go(func() {

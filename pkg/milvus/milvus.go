@@ -11,7 +11,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"reflect"
+	"maps"
 	"time"
 
 	"github.com/milvus-io/milvus/client/v2/column"
@@ -198,7 +198,8 @@ func validateCollection(actual *entity.Collection, expected *entity.Schema, shar
 			actualField.AutoID != expectedField.AutoID ||
 			actualField.ElementType != expectedField.ElementType ||
 			actualField.Nullable != expectedField.Nullable ||
-			!reflect.DeepEqual(actualField.TypeParams, expectedField.TypeParams) {
+			(actualField.TypeParams == nil) != (expectedField.TypeParams == nil) ||
+			!maps.Equal(actualField.TypeParams, expectedField.TypeParams) {
 			return fmt.Errorf("milvus: collection %q field %q does not match expected schema", expected.CollectionName, expectedField.Name)
 		}
 	}
@@ -570,9 +571,7 @@ func (mc *MilvusClient) CreateHNSWIndex(ctx context.Context, collectionName stri
 // NewIndexByType 根据索引类型创建索引对象
 func NewIndexByType(indexType milvusindex.IndexType, metricType entity.MetricType, params map[string]string) (milvusindex.Index, error) {
 	complete := make(map[string]string, len(params)+2)
-	for key, value := range params {
-		complete[key] = value
-	}
+	maps.Copy(complete, params)
 	complete[milvusindex.IndexTypeKey] = string(indexType)
 	complete[milvusindex.MetricTypeKey] = string(metricType)
 

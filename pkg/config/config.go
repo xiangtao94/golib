@@ -105,8 +105,7 @@ func configKeys(valueType reflect.Type, prefix string) ([]string, error) {
 	}
 
 	var keys []string
-	for index := range valueType.NumField() {
-		field := valueType.Field(index)
+	for field := range valueType.Fields() {
 		if !field.IsExported() {
 			continue
 		}

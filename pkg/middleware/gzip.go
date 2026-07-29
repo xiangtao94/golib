@@ -113,7 +113,7 @@ func (writer *gzipResponseWriter) close() {
 }
 
 func acceptsGzip(header string) bool {
-	for _, value := range strings.Split(header, ",") {
+	for value := range strings.SplitSeq(header, ",") {
 		parts := strings.Split(strings.TrimSpace(value), ";")
 		if !strings.EqualFold(parts[0], "gzip") {
 			continue
@@ -130,7 +130,7 @@ func acceptsGzip(header string) bool {
 
 func addVary(header http.Header, value string) {
 	for _, existing := range header.Values("Vary") {
-		for _, item := range strings.Split(existing, ",") {
+		for item := range strings.SplitSeq(existing, ",") {
 			if strings.EqualFold(strings.TrimSpace(item), value) {
 				return
 			}

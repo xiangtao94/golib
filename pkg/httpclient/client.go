@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"time"
 
@@ -166,7 +167,7 @@ func normalizeConfig(config Config) (Config, error) {
 			return Config{}, fmt.Errorf("httpclient: invalid base URL: %w", err)
 		}
 	}
-	config.BaseURLs = append([]string(nil), config.BaseURLs...)
+	config.BaseURLs = slices.Clone(config.BaseURLs)
 	for index, baseURL := range config.BaseURLs {
 		config.BaseURLs[index] = strings.TrimSpace(baseURL)
 		if err := validateBaseURL(config.BaseURLs[index], config.AllowHTTP); err != nil {
