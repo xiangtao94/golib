@@ -24,7 +24,7 @@ interface 只放在使用它的 seam，不为“将来可能替换”预建同�
 
 | Interface | Owner | 为什么保留 |
 |---|---|---|
-| `web.Controller[T]` | `web` Gin adapter | 多个业务 Controller 直接实现，adapter 统一绑定、context 和渲染 |
+| `func(context.Context, *T) (any, error)` | `web` Gin adapter | 函数、闭包及方法值直接接入，adapter 统一绑定、context 和渲染 |
 | `cron.Job` / `cycle.Job` | scheduler | `FuncJob` 与业务 struct 都是实际 adapter |
 | `cron.Schedule` | scheduler | cron spec 与 constant-delay 已有两个实现 |
 

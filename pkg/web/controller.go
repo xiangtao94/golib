@@ -12,52 +12,41 @@ import (
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
-// Controller is deliberately independent of Gin. The HTTP adapter passes the
-// request context and owns binding and rendering.
-type Controller[T any] interface {
-	Action(context.Context, *T) (any, error)
-}
-
-type controllerConfig struct {
+type handlerConfig struct {
 	binding       binding.Binding
 	renderer      *render.JSONRenderer
 	successStatus int
 }
 
-type ControllerOption func(*controllerConfig)
+type Option func(*handlerConfig)
 
-func WithBinding(requestBinding binding.Binding) ControllerOption {
-	return func(config *controllerConfig) {
+// WithBinding overrides automatic binding, regardless of Content-Type.
+func WithBinding(requestBinding binding.Binding) Option {
+	return func(config *handlerConfig) {
 		config.binding = requestBinding
 	}
 }
 
-func WithRenderer(renderer *render.JSONRenderer) ControllerOption {
-	return func(config *controllerConfig) {
+func WithRenderer(renderer *render.JSONRenderer) Option {
+	return func(config *handlerConfig) {
 		config.renderer = renderer
 	}
 }
 
 // WithSuccessStatus sets the HTTP status for successful controller responses.
-func WithSuccessStatus(status int) ControllerOption {
-	return func(config *controllerConfig) {
+func WithSuccessStatus(status int) Option {
+	return func(config *handlerConfig) {
 		config.successStatus = status
 	}
 }
 
-type renderPolicy interface {
-	ShouldRender() bool
-}
-
-// Handle adapts a constructed business controller to Gin. Controllers should
-// hold only constructor-injected dependencies; request state arrives through
-// Action parameters.
-func Handle[T any](controller Controller[T], options ...ControllerOption) gin.HandlerFunc {
-	if controller == nil {
-		panic("web: nil controller")
+// Handle binds a request, invokes action, and renders its JSON result.
+// HTML, streaming, and multipart endpoints can use Gin handlers and render directly.
+func Handle[T any](action func(context.Context, *T) (any, error), options ...Option) gin.HandlerFunc {
+	if action == nil {
+		panic("web: nil action")
 	}
-	config := controllerConfig{
-		binding:       binding.Form,
+	config := handlerConfig{
 		renderer:      render.NewJSONRenderer(nil),
 		successStatus: http.StatusOK,
 	}
@@ -79,25 +68,23 @@ func Handle[T any](controller Controller[T], options ...ControllerOption) gin.Ha
 
 		var request T
 		var err error
-		if ginCtx.GetHeader("Content-Type") == "" {
+		if config.binding != nil {
 			err = ginCtx.ShouldBindWith(&request, config.binding)
 		} else {
 			err = ginCtx.ShouldBind(&request)
 		}
 		if err != nil {
-			zlog.Errorf(ginCtx, "controller %T parameter binding failed: %v", controller, err)
+			zlog.Errorf(ginCtx, "handler %s parameter binding failed: %v", ginCtx.FullPath(), err)
 			config.renderer.Failure(ginCtx, errors.ErrInvalidArgument)
 			return
 		}
 
-		data, err := controller.Action(requestContext, &request)
+		data, err := action(requestContext, &request)
 		if err != nil {
-			zlog.Errorf(ginCtx, "controller %T action failed: %v", controller, err)
+			zlog.Errorf(ginCtx, "handler %s action failed: %v", ginCtx.FullPath(), err)
 			config.renderer.Failure(ginCtx, err)
 			return
 		}
-		if policy, ok := controller.(renderPolicy); !ok || policy.ShouldRender() {
-			config.renderer.SuccessWithStatus(ginCtx, config.successStatus, data)
-		}
+		config.renderer.SuccessWithStatus(ginCtx, config.successStatus, data)
 	}
 }

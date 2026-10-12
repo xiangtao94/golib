@@ -26,12 +26,12 @@ func (controller *testController) Action(ctx context.Context, request *controlle
 	return gin.H{"value": controller.dependency + ":" + request.Name}, nil
 }
 
-func TestHandleUsesInjectedController(t *testing.T) {
+func TestHandleUsesMethodValue(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	engine := gin.New()
 	var actionRequestID string
 	controller := &testController{dependency: "injected", requestID: &actionRequestID}
-	engine.GET("/", Handle[controllerRequest](controller))
+	engine.GET("/", Handle(controller.Action))
 
 	response := httptest.NewRecorder()
 	request := httptest.NewRequest(http.MethodGet, "/?name=alice", nil)
@@ -43,7 +43,7 @@ func TestHandleUsesInjectedController(t *testing.T) {
 	require.Equal(t, response.Header().Get(zlog.HeaderRequestID), actionRequestID)
 }
 
-func TestHandleRejectsNilController(t *testing.T) {
+func TestHandleRejectsNilAction(t *testing.T) {
 	require.Panics(t, func() {
 		Handle[controllerRequest](nil)
 	})
@@ -52,7 +52,7 @@ func TestHandleRejectsNilController(t *testing.T) {
 func TestHandleUsesAcceptedSuccessStatus(t *testing.T) {
 	engine := gin.New()
 	var requestID string
-	engine.GET("/", Handle[controllerRequest](&testController{dependency: "injected", requestID: &requestID}, WithSuccessStatus(http.StatusAccepted)))
+	engine.GET("/", Handle((&testController{dependency: "injected", requestID: &requestID}).Action, WithSuccessStatus(http.StatusAccepted)))
 
 	response := httptest.NewRecorder()
 	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/?name=alice", nil))
@@ -63,6 +63,6 @@ func TestHandleUsesAcceptedSuccessStatus(t *testing.T) {
 
 func TestHandleRejectsSuccessStatusWithoutBody(t *testing.T) {
 	require.Panics(t, func() {
-		Handle[controllerRequest](&testController{}, WithSuccessStatus(http.StatusNoContent))
+		Handle((&testController{}).Action, WithSuccessStatus(http.StatusNoContent))
 	})
 }
