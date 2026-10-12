@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -21,8 +20,8 @@ type testController struct {
 	requestID  *string
 }
 
-func (controller *testController) Action(ctx context.Context, request *controllerRequest) (any, error) {
-	*controller.requestID = zlog.GetRequestID(ctx)
+func (controller *testController) Action(ctx *gin.Context, request *controllerRequest) (any, error) {
+	*controller.requestID = zlog.GetRequestID(ctx.Request.Context())
 	return gin.H{"value": controller.dependency + ":" + request.Name}, nil
 }
 

@@ -1,7 +1,6 @@
 package web
 
 import (
-	"context"
 	"net/http"
 
 	"github.com/gin-gonic/gin"
@@ -41,8 +40,9 @@ func WithSuccessStatus(status int) Option {
 }
 
 // Handle binds a request, invokes action, and renders its JSON result.
-// HTML, streaming, and multipart endpoints can use Gin handlers and render directly.
-func Handle[T any](action func(context.Context, *T) (any, error), options ...Option) gin.HandlerFunc {
+// Actions may read HTTP metadata; services receive ginCtx.Request.Context().
+// HTML and streaming endpoints use Gin handlers and render directly.
+func Handle[T any](action func(*gin.Context, *T) (any, error), options ...Option) gin.HandlerFunc {
 	if action == nil {
 		panic("web: nil action")
 	}
@@ -79,7 +79,7 @@ func Handle[T any](action func(context.Context, *T) (any, error), options ...Opt
 			return
 		}
 
-		data, err := action(requestContext, &request)
+		data, err := action(ginCtx, &request)
 		if err != nil {
 			zlog.Errorf(ginCtx, "handler %s action failed: %v", ginCtx.FullPath(), err)
 			config.renderer.Failure(ginCtx, err)
