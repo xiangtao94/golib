@@ -20,18 +20,31 @@ jobs:
           - pkg/mcp
           - pkg/milvus
           - pkg/mongodb
-          - pkg/orm
+          - pkg/mysql
           - pkg/otel
           - pkg/redis
           - pkg/s3
           - testdata/consumer
 
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v6
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
           cache-dependency-path: ${{ matrix.module }}/go.sum
+
+      - name: Check publishable module manifest
+        if: matrix.module != '.' && matrix.module != 'testdata/consumer'
+        working-directory: ${{ matrix.module }}
+        run: |
+          if grep -Eq '^replace([[:space:]]|[[:space:]]*\()' go.mod; then
+            echo 'Published modules must not contain replace directives' >&2
+            exit 1
+          fi
+          if grep -Eq '[[:space:]]v0\.0\.0([[:space:]]|$)' go.mod; then
+            echo 'Published modules must not require placeholder versions' >&2
+            exit 1
+          fi
 
       - name: Test with race detector
         working-directory: ${{ matrix.module }}
@@ -43,8 +56,9 @@ jobs:
 
       - name: Staticcheck correctness checks
         working-directory: ${{ matrix.module }}
-        run: GOWORK=off go run honnef.co/go/tools/cmd/staticcheck@v0.7.0 -checks='SA*' ./...
+        # v0.8.1 uses an x/tools version that cannot read Go 1.27 export data.
+        run: GOWORK=off go run honnef.co/go/tools/cmd/staticcheck@v0.7.0-0.dev.0.20261009230814-452d5bb86b45 -checks='SA*' ./...
 
       - name: Vulnerability scan
         working-directory: ${{ matrix.module }}
-        run: GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.6.0 ./...
+        run: GOWORK=off go run golang.org/x/vuln/cmd/govulncheck@v1.9.0 ./...

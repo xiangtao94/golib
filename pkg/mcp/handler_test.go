@@ -83,8 +83,38 @@ func TestRegisterRejectsOversizedRequestBody(t *testing.T) {
 
 	engine.ServeHTTP(response, request)
 
-	if response.Code != http.StatusBadRequest {
-		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusBadRequest, response.Body)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusRequestEntityTooLarge, response.Body)
+	}
+}
+
+func TestRegisterUsesOfficialTransportOptionsOnRouteGroup(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+
+	handler := NewHandler(
+		"group-test",
+		"1.0.0",
+		WithStreamableHTTPOptions(&officialmcp.StreamableHTTPOptions{
+			JSONResponse:        true,
+			Stateless:           true,
+			MaxRequestBodyBytes: 64,
+		}),
+	)
+	engine := gin.New()
+	handler.Register(engine.Group("/ai"))
+
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/ai/mcp",
+		strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping","padding":"`+strings.Repeat("x", 128)+`"}`),
+	)
+	request.Header.Set("Accept", "application/json, text/event-stream")
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	engine.ServeHTTP(response, request)
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d; body = %s", response.Code, http.StatusRequestEntityTooLarge, response.Body)
 	}
 }
 

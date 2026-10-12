@@ -121,11 +121,18 @@ type HTTPServerConfig struct {
 	Addr              string
 	ReadHeaderTimeout time.Duration
 	ReadTimeout       time.Duration
-	WriteTimeout      time.Duration
-	IdleTimeout       time.Duration
-	ShutdownTimeout   time.Duration
-	MaxHeaderBytes    int
+	// WriteTimeout is the maximum time allowed to write a response. Set it to
+	// NoWriteTimeout for long-lived streams such as SSE or MCP. Zero uses the
+	// default timeout.
+	WriteTimeout    time.Duration
+	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
+	MaxHeaderBytes  int
 }
+
+// NoWriteTimeout disables the HTTP server's response write deadline. Use it
+// only when handlers manage the lifetime of long-lived connections.
+const NoWriteTimeout time.Duration = -1
 
 func DefaultHTTPServerConfig(port int) HTTPServerConfig {
 	if port <= 0 {
@@ -158,7 +165,9 @@ func NewHTTPServer(handler http.Handler, conf HTTPServerConfig) *HTTPServer {
 	if conf.ReadTimeout <= 0 {
 		conf.ReadTimeout = defaults.ReadTimeout
 	}
-	if conf.WriteTimeout <= 0 {
+	if conf.WriteTimeout == NoWriteTimeout {
+		conf.WriteTimeout = 0
+	} else if conf.WriteTimeout <= 0 {
 		conf.WriteTimeout = defaults.WriteTimeout
 	}
 	if conf.IdleTimeout <= 0 {

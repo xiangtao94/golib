@@ -5,7 +5,7 @@
 ```text
 业务 module
   ├─> Core module（config / lifecycle / health / web / env / zlog / httpclient / middleware / job / render）
-  └─> 按需 adapter module（orm / mongodb / redis / s3 / milvus / elasticsearch / mcp）
+  └─> 按需 adapter module（mysql / mongodb / redis / s3 / milvus / elasticsearch / mcp）
            └─> Core 中的 env / zlog package
   └─> 按需 instrumentation module（otel）
            └─> Core 中的 httpclient / zlog package

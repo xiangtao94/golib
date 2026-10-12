@@ -15,9 +15,9 @@ const (
 	// DefaultSessionTimeout bounds how long an idle stateful MCP session is
 	// retained when no streamable HTTP options are supplied.
 	DefaultSessionTimeout = 30 * time.Minute
-	// DefaultMaxRequestBodyBytes bounds memory consumed while the upstream MCP
-	// transport buffers a request body.
-	DefaultMaxRequestBodyBytes int64 = 4 << 20
+	// DefaultMaxRequestBodyBytes is the official transport's default limit.
+	// Deprecated: Use officialmcp.DefaultMaxRequestBodyBytes directly.
+	DefaultMaxRequestBodyBytes int64 = officialmcp.DefaultMaxRequestBodyBytes
 	// DefaultMaxActiveSessions bounds stateful MCP session fan-out.
 	DefaultMaxActiveSessions = 1_024
 )
@@ -27,11 +27,13 @@ const (
 type HTTPContextFunc func(context.Context, *http.Request) context.Context
 
 type Handler struct {
-	Server              *officialmcp.Server
-	BasePath            string
-	ContextFn           HTTPContextFunc
-	ServerOpts          officialmcp.ServerOptions
-	StreamableHTTPOpts  officialmcp.StreamableHTTPOptions
+	Server             *officialmcp.Server
+	BasePath           string
+	ContextFn          HTTPContextFunc
+	ServerOpts         officialmcp.ServerOptions
+	StreamableHTTPOpts officialmcp.StreamableHTTPOptions
+	// MaxRequestBodyBytes overrides StreamableHTTPOpts.MaxRequestBodyBytes when
+	// positive. Deprecated: Set StreamableHTTPOpts.MaxRequestBodyBytes instead.
 	MaxRequestBodyBytes int64
 	MaxActiveSessions   int
 
@@ -51,7 +53,6 @@ type MCPHandlerOption func(*Handler)
 func NewHandler(name, version string, opts ...MCPHandlerOption) *Handler {
 	h := &Handler{
 		BasePath:               "/mcp",
-		MaxRequestBodyBytes:    DefaultMaxRequestBodyBytes,
 		MaxActiveSessions:      DefaultMaxActiveSessions,
 		sessionAdmissions:      make(map[uint64]context.CancelFunc),
 		sessionAdmissionChange: make(chan struct{}),
@@ -64,9 +65,6 @@ func NewHandler(name, version string, opts ...MCPHandlerOption) *Handler {
 		h.StreamableHTTPOpts.SessionTimeout <= 0 &&
 		!h.allowUnlimitedSessions {
 		h.StreamableHTTPOpts.SessionTimeout = DefaultSessionTimeout
-	}
-	if h.MaxRequestBodyBytes <= 0 {
-		h.MaxRequestBodyBytes = DefaultMaxRequestBodyBytes
 	}
 	if h.MaxActiveSessions <= 0 {
 		h.MaxActiveSessions = DefaultMaxActiveSessions
@@ -120,8 +118,10 @@ func WithUnlimitedSessionLifetime() MCPHandlerOption {
 	}
 }
 
-// WithMaxRequestBodyBytes sets the maximum MCP request body size. Non-positive
-// values use [DefaultMaxRequestBodyBytes].
+// WithMaxRequestBodyBytes sets the official transport's request body limit.
+// Non-positive values leave StreamableHTTPOptions.MaxRequestBodyBytes unchanged.
+// Deprecated: Set StreamableHTTPOptions.MaxRequestBodyBytes through
+// WithStreamableHTTPOptions instead.
 func WithMaxRequestBodyBytes(maxBytes int64) MCPHandlerOption {
 	return func(h *Handler) {
 		h.MaxRequestBodyBytes = maxBytes

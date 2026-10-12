@@ -10,16 +10,19 @@ import (
 
 const sessionIDHeader = "Mcp-Session-Id"
 
-// Register registers the streamable MCP HTTP transport on the Gin engine.
-func (h *Handler) Register(r *gin.Engine) {
+// Register registers the streamable MCP HTTP transport on a Gin router or group.
+func (h *Handler) Register(r gin.IRoutes) {
+	opts := h.StreamableHTTPOpts
+	if h.MaxRequestBodyBytes > 0 {
+		opts.MaxRequestBodyBytes = h.MaxRequestBodyBytes
+	}
 	streamable := officialmcp.NewStreamableHTTPHandler(
 		func(*http.Request) *officialmcp.Server {
 			return h.Server
 		},
-		&h.StreamableHTTPOpts,
+		&opts,
 	)
 	httpHandler := http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
-		request.Body = http.MaxBytesReader(w, request.Body, h.MaxRequestBodyBytes)
 		if h.ContextFn != nil {
 			request = request.WithContext(h.ContextFn(request.Context(), request))
 		}

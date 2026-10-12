@@ -36,6 +36,15 @@ func TestDefaultHTTPServerConfigHasDefensiveTimeouts(t *testing.T) {
 	require.Positive(t, conf.MaxHeaderBytes)
 }
 
+func TestHTTPServerWriteTimeoutCanBeDisabledForStreams(t *testing.T) {
+	conf := DefaultHTTPServerConfig(8080)
+	conf.WriteTimeout = NoWriteTimeout
+	server := NewHTTPServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}), conf)
+
+	require.Zero(t, server.server.WriteTimeout)
+	require.Equal(t, 30*time.Second, NewHTTPServer(http.NotFoundHandler(), HTTPServerConfig{}).server.WriteTimeout)
+}
+
 func TestHTTPServerServeStopsWhenContextIsCanceled(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	require.NoError(t, err)

@@ -1,6 +1,6 @@
-go 1.26.0
+go 1.27.0
 
-toolchain go1.26.5
+toolchain go1.27.2
 
 use (
 	.
@@ -8,7 +8,7 @@ use (
 	./pkg/mcp
 	./pkg/milvus
 	./pkg/mongodb
-	./pkg/orm
+	./pkg/mysql
 	./pkg/otel
 	./pkg/redis
 	./pkg/s3

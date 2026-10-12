@@ -1,11 +1,14 @@
-# ORM
+# mysql
 
 独立 MySQL/GORM adapter。该 module 不提供内存数据库、备份或业务存储扩展。
+
+原 `github.com/xiangtao94/golib/pkg/orm` 模块已更名为
+`github.com/xiangtao94/golib/pkg/mysql`。使用方需更新 module 依赖和 import 路径。
 
 ## 连接
 
 ```go
-db, err := orm.InitMysqlClient(orm.MysqlConf{
+db, err := mysql.InitMysqlClient(mysql.MysqlConf{
 	DataBase:      "users",
 	Addr:          "mysql.example.com:3306",
 	User:          "users",

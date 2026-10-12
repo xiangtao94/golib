@@ -1,4 +1,4 @@
-package orm
+package mysql
 
 import (
 	"context"
@@ -10,7 +10,7 @@ import (
 	driver "github.com/go-sql-driver/mysql"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/collectors"
-	"gorm.io/driver/mysql"
+	gormmysql "gorm.io/driver/mysql"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 	ormUtil "gorm.io/gorm/utils"
@@ -75,7 +75,7 @@ func InitMysqlClient(conf MysqlConf) (client *gorm.DB, err error) {
 	c := gormConfig(conf, l)
 	_ = driver.SetLogger(l)
 
-	client, err = gorm.Open(mysql.Open(dsn), c)
+	client, err = gorm.Open(gormmysql.Open(dsn), c)
 	if err != nil {
 		return client, err
 	}
