@@ -212,32 +212,32 @@ func (c *Cron) nextWaitAndRunDue(ctx context.Context) time.Duration {
 	now := c.now()
 
 	c.mu.Lock()
-	slices.SortFunc(c.entries, compareEntryTime)
+	var next time.Time
 	for _, entry := range c.entries {
-		if entry.Next.IsZero() || entry.Next.After(now) {
-			break
+		if !entry.Next.IsZero() && !entry.Next.After(now) {
+			entry.Prev = entry.Next
+			entry.Next = entry.Schedule.Next(now)
+			if !entry.running {
+				entry.running = true
+				c.jobs.Go(func() {
+					defer func() {
+						c.mu.Lock()
+						entry.running = false
+						c.mu.Unlock()
+					}()
+					c.runWithRecovery(ctx, entry)
+				})
+			}
 		}
-		entry.Prev = entry.Next
-		entry.Next = entry.Schedule.Next(now)
-		if entry.running {
-			continue
+		if !entry.Next.IsZero() && (next.IsZero() || entry.Next.Before(next)) {
+			next = entry.Next
 		}
-		entry.running = true
-		c.jobs.Go(func() {
-			defer func() {
-				c.mu.Lock()
-				entry.running = false
-				c.mu.Unlock()
-			}()
-			c.runWithRecovery(ctx, entry)
-		})
 	}
-	slices.SortFunc(c.entries, compareEntryTime)
-	if len(c.entries) == 0 || c.entries[0].Next.IsZero() {
+	if next.IsZero() {
 		c.mu.Unlock()
 		return 24 * time.Hour
 	}
-	waitDuration := time.Until(c.entries[0].Next)
+	waitDuration := time.Until(next)
 	c.mu.Unlock()
 	if waitDuration < 0 {
 		return 0
@@ -288,6 +288,7 @@ func (c *Cron) entrySnapshotLocked() []*Entry {
 			Spec:     entry.Spec,
 		})
 	}
+	slices.SortFunc(entries, compareEntryTime)
 	return entries
 }
 

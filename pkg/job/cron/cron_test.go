@@ -16,6 +16,32 @@ func (immediateSchedule) Next(now time.Time) time.Time {
 	return now.Add(time.Millisecond)
 }
 
+type delayedSchedule time.Duration
+
+func (schedule delayedSchedule) Next(now time.Time) time.Time {
+	return now.Add(time.Duration(schedule))
+}
+
+func TestCronRunsAllDueEntriesAndFindsEarliestNext(t *testing.T) {
+	scheduler := New()
+	ran := make(chan string, 2)
+	now := time.Now()
+	scheduler.entries = []*Entry{
+		{Schedule: delayedSchedule(time.Hour), Next: now.Add(-time.Second), Job: FuncJob(func(context.Context) error {
+			ran <- "late"
+			return nil
+		})},
+		{Schedule: delayedSchedule(time.Minute), Next: now.Add(-time.Second), Job: FuncJob(func(context.Context) error {
+			ran <- "early"
+			return nil
+		})},
+	}
+	wait := scheduler.nextWaitAndRunDue(t.Context())
+	scheduler.jobs.Wait()
+	require.InDelta(t, float64(time.Minute), float64(wait), float64(time.Second))
+	require.ElementsMatch(t, []string{"late", "early"}, []string{<-ran, <-ran})
+}
+
 func TestCronUsesCallerContextAndStops(t *testing.T) {
 	scheduler := New()
 	require.NoError(t, scheduler.AddFunc("* * * * * *", func(ctx context.Context) error {

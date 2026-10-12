@@ -41,6 +41,8 @@ type RateLimiter struct {
 	lastCleanup time.Time
 }
 
+const maxExpiredRemovalsPerRequest = 64
+
 func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
 	if config.Rate <= 0 {
 		config.Rate = 1
@@ -67,11 +69,11 @@ func NewRateLimiter(config RateLimiterConfig) *RateLimiter {
 
 func (limiter *RateLimiter) allow(key string, now time.Time) bool {
 	limiter.mu.Lock()
-	defer limiter.mu.Unlock()
 
 	if now.Sub(limiter.lastCleanup) >= limiter.ttl/2 {
-		limiter.removeExpired(now)
-		limiter.lastCleanup = now
+		if limiter.removeExpired(now, maxExpiredRemovalsPerRequest) {
+			limiter.lastCleanup = now
+		}
 	}
 	entry, exists := limiter.entries[key]
 	if !exists {
@@ -87,19 +89,28 @@ func (limiter *RateLimiter) allow(key string, now time.Time) bool {
 		limiter.order.MoveToBack(entry.element)
 	}
 	entry.lastSeen = now
-	return entry.limiter.AllowN(now, 1)
+	keyLimiter := entry.limiter
+	limiter.mu.Unlock()
+	return keyLimiter.AllowN(now, 1)
 }
 
-func (limiter *RateLimiter) removeExpired(now time.Time) {
+// removeExpired returns true once no expired entry remains at the LRU front.
+func (limiter *RateLimiter) removeExpired(now time.Time, limit int) bool {
+	removed := 0
 	for limiter.order.Len() > 0 {
 		oldest := limiter.order.Front()
 		key := oldest.Value.(string)
 		entry := limiter.entries[key]
 		if now.Sub(entry.lastSeen) < limiter.ttl {
-			return
+			return true
 		}
 		limiter.removeElement(oldest)
+		removed++
+		if removed >= limit {
+			return limiter.order.Len() == 0
+		}
 	}
+	return true
 }
 
 func (limiter *RateLimiter) removeOldest() {

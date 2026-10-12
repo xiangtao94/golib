@@ -24,10 +24,11 @@ import (
 )
 
 const (
-	DefaultMaxRequestBytes = 4 << 20
-	DefaultMaxEventBytes   = 8 << 20
-	DefaultMaxConcurrent   = 128
-	DefaultMaxRunDuration  = 30 * time.Minute
+	DefaultMaxRequestBytes               = 4 << 20
+	DefaultMaxEventBytes                 = 8 << 20
+	DefaultMaxConcurrent                 = 128
+	DefaultMaxInFlightPayloadBytes int64 = 256 << 20
+	DefaultMaxRunDuration                = 30 * time.Minute
 )
 
 // HeaderFunc adds server-trusted upstream headers, such as service credentials.
@@ -42,7 +43,10 @@ type Config struct {
 	MaxRequestBytes int64
 	MaxEventBytes   int
 	MaxConcurrent   int
-	MaxRunDuration  time.Duration
+	// MaxInFlightPayloadBytes limits admission using each stream's configured
+	// request and event limits. It is an admission budget, not an exact heap cap.
+	MaxInFlightPayloadBytes int64
+	MaxRunDuration          time.Duration
 }
 
 type Gateway struct {
@@ -64,7 +68,8 @@ func New(config Config) (*Gateway, error) {
 		return nil, errors.New("agui: endpoint must be an absolute HTTPS URL without credentials, query, or fragment (HTTP requires AllowHTTP)")
 	}
 	if config.MaxRequestBytes < 0 || config.MaxEventBytes < 0 ||
-		config.MaxConcurrent < 0 || config.MaxRunDuration < 0 {
+		config.MaxConcurrent < 0 || config.MaxInFlightPayloadBytes < 0 ||
+		config.MaxRunDuration < 0 {
 		return nil, errors.New("agui: limits cannot be negative")
 	}
 	if config.MaxRequestBytes == math.MaxInt64 {
@@ -79,6 +84,17 @@ func New(config Config) (*Gateway, error) {
 	if config.MaxConcurrent == 0 {
 		config.MaxConcurrent = DefaultMaxConcurrent
 	}
+	if config.MaxInFlightPayloadBytes == 0 {
+		config.MaxInFlightPayloadBytes = DefaultMaxInFlightPayloadBytes
+	}
+	if config.MaxRequestBytes > math.MaxInt64-int64(config.MaxEventBytes) {
+		return nil, errors.New("agui: combined request and event limit is too large")
+	}
+	perStreamPayload := config.MaxRequestBytes + int64(config.MaxEventBytes)
+	if config.MaxInFlightPayloadBytes < perStreamPayload {
+		return nil, errors.New("agui: in-flight payload budget must cover at least one stream")
+	}
+	effectiveConcurrent := int(min(int64(config.MaxConcurrent), config.MaxInFlightPayloadBytes/perStreamPayload))
 	if config.MaxRunDuration == 0 {
 		config.MaxRunDuration = DefaultMaxRunDuration
 	}
@@ -106,7 +122,7 @@ func New(config Config) (*Gateway, error) {
 		maxRequestBytes: config.MaxRequestBytes,
 		maxEventBytes:   config.MaxEventBytes,
 		maxRunDuration:  config.MaxRunDuration,
-		slots:           make(chan struct{}, config.MaxConcurrent),
+		slots:           make(chan struct{}, effectiveConcurrent),
 	}, nil
 }
 

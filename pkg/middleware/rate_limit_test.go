@@ -3,6 +3,7 @@ package middleware
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 
@@ -49,6 +50,22 @@ func TestRateLimiterRefreshesEntryBeforeConstantTimeEviction(t *testing.T) {
 	require.NotContains(t, limiter.entries, "second")
 	require.Contains(t, limiter.entries, "third")
 	require.Equal(t, 2, limiter.order.Len())
+}
+
+func TestRateLimiterSpreadsExpiredCleanupAcrossRequests(t *testing.T) {
+	limiter := NewRateLimiter(RateLimiterConfig{
+		Rate: rate.Inf, Burst: 1, TTL: time.Second, MaxEntries: 200,
+	})
+	start := time.Now()
+	for index := range 200 {
+		limiter.allow(strconv.Itoa(index), start)
+	}
+	limiter.allow("new", start.Add(2*time.Second))
+	require.Len(t, limiter.entries, 137)
+	for range 3 {
+		limiter.allow("new", start.Add(2*time.Second))
+	}
+	require.Len(t, limiter.entries, 1)
 }
 
 func TestRateLimitMiddlewareUsesTheSharedErrorContract(t *testing.T) {

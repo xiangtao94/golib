@@ -26,17 +26,20 @@ var ErrInsecureTransport = errors.New("httpclient: HTTP transport is not allowed
 type TransportMiddleware func(http.RoundTripper) http.RoundTripper
 
 type Config struct {
-	Service          string        `yaml:"service"`
-	BaseURL          string        `yaml:"baseURL"`
-	BaseURLs         []string      `yaml:"baseURLs"`
-	Timeout          time.Duration `yaml:"timeout"`
-	ConnectTimeout   time.Duration `yaml:"connectTimeout"`
-	RetryCount       int           `yaml:"retryCount"`
-	RetryWaitTime    time.Duration `yaml:"retryWaitTime"`
-	RetryMaxWaitTime time.Duration `yaml:"retryMaxWaitTime"`
-	Proxy            string        `yaml:"proxy"`
-	TraceEnabled     bool          `yaml:"traceEnabled"`
-	AllowHTTP        bool          `yaml:"allowHTTP"`
+	Service             string        `yaml:"service"`
+	BaseURL             string        `yaml:"baseURL"`
+	BaseURLs            []string      `yaml:"baseURLs"`
+	Timeout             time.Duration `yaml:"timeout"`
+	ConnectTimeout      time.Duration `yaml:"connectTimeout"`
+	MaxIdleConns        int           `yaml:"maxIdleConns"`
+	MaxIdleConnsPerHost int           `yaml:"maxIdleConnsPerHost"`
+	MaxConnsPerHost     int           `yaml:"maxConnsPerHost"`
+	RetryCount          int           `yaml:"retryCount"`
+	RetryWaitTime       time.Duration `yaml:"retryWaitTime"`
+	RetryMaxWaitTime    time.Duration `yaml:"retryMaxWaitTime"`
+	Proxy               string        `yaml:"proxy"`
+	TraceEnabled        bool          `yaml:"traceEnabled"`
+	AllowHTTP           bool          `yaml:"allowHTTP"`
 
 	Transport           http.RoundTripper          `yaml:"-"`
 	TransportMiddleware []TransportMiddleware      `yaml:"-"`
@@ -45,11 +48,13 @@ type Config struct {
 
 func DefaultConfig() Config {
 	return Config{
-		Timeout:          5 * time.Second,
-		ConnectTimeout:   5 * time.Second,
-		RetryCount:       0,
-		RetryWaitTime:    500 * time.Millisecond,
-		RetryMaxWaitTime: 2 * time.Second,
+		Timeout:             5 * time.Second,
+		ConnectTimeout:      5 * time.Second,
+		MaxIdleConns:        100,
+		MaxIdleConnsPerHost: 10,
+		RetryCount:          0,
+		RetryWaitTime:       500 * time.Millisecond,
+		RetryMaxWaitTime:    2 * time.Second,
 	}
 }
 
@@ -67,8 +72,9 @@ func New(config Config) (*resty.Client, error) {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: time.Second,
-		MaxIdleConns:          100,
-		MaxIdleConnsPerHost:   10,
+		MaxIdleConns:          normalized.MaxIdleConns,
+		MaxIdleConnsPerHost:   normalized.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       normalized.MaxConnsPerHost,
 	})
 	defaultTransport, err := client.HTTPTransport()
 	if err != nil {
@@ -146,6 +152,9 @@ func normalizeConfig(config Config) (Config, error) {
 	if config.Timeout < 0 || config.ConnectTimeout < 0 {
 		return Config{}, errors.New("httpclient: timeout cannot be negative")
 	}
+	if config.MaxIdleConns < 0 || config.MaxIdleConnsPerHost < 0 || config.MaxConnsPerHost < 0 {
+		return Config{}, errors.New("httpclient: connection pool limits cannot be negative")
+	}
 	if config.RetryWaitTime < 0 || config.RetryMaxWaitTime < 0 {
 		return Config{}, errors.New("httpclient: retry wait cannot be negative")
 	}
@@ -186,6 +195,12 @@ func normalizeConfig(config Config) (Config, error) {
 	}
 	if config.ConnectTimeout == 0 {
 		config.ConnectTimeout = defaults.ConnectTimeout
+	}
+	if config.MaxIdleConns == 0 {
+		config.MaxIdleConns = defaults.MaxIdleConns
+	}
+	if config.MaxIdleConnsPerHost == 0 {
+		config.MaxIdleConnsPerHost = defaults.MaxIdleConnsPerHost
 	}
 	if config.RetryWaitTime == 0 {
 		config.RetryWaitTime = defaults.RetryWaitTime

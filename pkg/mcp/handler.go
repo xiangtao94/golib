@@ -37,14 +37,15 @@ type Handler struct {
 	MaxRequestBodyBytes int64
 	MaxActiveSessions   int
 
-	allowUnlimitedSessions bool
-	sessionAdmissionMu     sync.Mutex
-	sessionAdmissions      map[uint64]context.CancelFunc
-	sessionAdmissionChange chan struct{}
-	nextSessionAdmission   uint64
-	closed                 bool
-	closeDone              chan struct{}
-	closeErr               error
+	allowUnlimitedSessions   bool
+	sessionAdmissionMu       sync.Mutex
+	sessionAdmissions        map[uint64]context.CancelFunc
+	sessionAdmissionChange   chan struct{}
+	sessionAdmissionRevision uint64
+	nextSessionAdmission     uint64
+	closed                   bool
+	closeDone                chan struct{}
+	closeErr                 error
 }
 
 // MCPHandlerOption configures a Handler before its MCP server is created.
@@ -163,6 +164,7 @@ func (h *Handler) Close() error {
 		cancels = append(cancels, cancel)
 	}
 	clear(h.sessionAdmissions)
+	h.sessionAdmissionRevision++
 	h.notifySessionAdmissionChangeLocked()
 	h.sessionAdmissionMu.Unlock()
 

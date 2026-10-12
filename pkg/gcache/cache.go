@@ -72,6 +72,8 @@ type cacheState[V any] struct {
 	shards            []shard[V]
 	maxEntries        int64
 	entryCount        atomic.Int64
+	// Cross-shard eviction is needed only when a new key's shard is empty.
+	crossShardMu sync.Mutex
 
 	evictionMu sync.RWMutex
 	onEvicted  func(string, V)
@@ -205,15 +207,7 @@ func (cache *Cache[V]) Close() {
 
 // Set stores a value, replacing an existing value.
 func (cache *Cache[V]) Set(key string, value V, expiration time.Duration) {
-	target := cache.shard(key)
-	target.mu.Lock()
-	evictedKey, evictedValue, evicted := storeItem(
-		cache.state,
-		target,
-		key,
-		cache.item(value, expiration),
-	)
-	target.mu.Unlock()
+	evictedKey, evictedValue, evicted, _ := cache.storeItem(key, cache.item(value, expiration), storeSet)
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
 	}
@@ -221,20 +215,10 @@ func (cache *Cache[V]) Set(key string, value V, expiration time.Duration) {
 
 // Add stores a value only when the key is absent or expired.
 func (cache *Cache[V]) Add(key string, value V, expiration time.Duration) error {
-	target := cache.shard(key)
-	now := time.Now().UnixNano()
-	target.mu.Lock()
-	if current, found := target.items[key]; found && !current.expiredAt(now) {
-		target.mu.Unlock()
-		return fmt.Errorf("%w: %q", ErrExists, key)
+	evictedKey, evictedValue, evicted, err := cache.storeItem(key, cache.item(value, expiration), storeAdd)
+	if err != nil {
+		return err
 	}
-	evictedKey, evictedValue, evicted := storeItem(
-		cache.state,
-		target,
-		key,
-		cache.item(value, expiration),
-	)
-	target.mu.Unlock()
 	if evicted {
 		cache.notifyEvicted(evictedKey, evictedValue)
 	}
@@ -486,22 +470,10 @@ func (cache *Cache[V]) LoadWithLimit(reader io.Reader, maxBytes int64) error {
 		if item.expiredAt(now) {
 			continue
 		}
-		target := cache.shard(key)
-		target.mu.Lock()
-		if current, found := target.items[key]; !found || current.expiredAt(now) {
-			evictedKey, evictedValue, evicted := storeItem(
-				cache.state,
-				target,
-				key,
-				item,
-			)
-			target.mu.Unlock()
-			if evicted {
-				cache.notifyEvicted(evictedKey, evictedValue)
-			}
-			continue
+		evictedKey, evictedValue, evicted, _ := cache.storeItem(key, item, storeIfAbsent)
+		if evicted {
+			cache.notifyEvicted(evictedKey, evictedValue)
 		}
-		target.mu.Unlock()
 	}
 	return nil
 }
@@ -655,25 +627,94 @@ func (cache *Cache[V]) notifyEvicted(key string, value V) {
 	}
 }
 
-func storeItem[V any](
-	state *cacheState[V],
-	target *shard[V],
-	key string,
-	item Item[V],
-) (string, V, bool) {
-	var zero V
-	_, found := target.items[key]
+type storeMode uint8
+
+const (
+	storeSet storeMode = iota
+	storeAdd
+	storeIfAbsent
+)
+
+func (cache *Cache[V]) storeItem(key string, item Item[V], mode storeMode) (string, V, bool, error) {
+	state := cache.state
+	target := cache.shard(key)
+	target.mu.Lock()
+	evictedKey, evictedValue, evicted, handled, err := storeInShardLocked(state, target, key, item, mode)
+	target.mu.Unlock()
+	if handled {
+		return evictedKey, evictedValue, evicted, err
+	}
+
+	// An empty destination shard cannot evict locally. Serialize only this
+	// uncommon path, then recheck: another writer may have filled the shard.
+	state.crossShardMu.Lock()
+	defer state.crossShardMu.Unlock()
+	target.mu.Lock()
+	evictedKey, evictedValue, evicted, handled, err = storeInShardLocked(state, target, key, item, mode)
+	if handled {
+		target.mu.Unlock()
+		return evictedKey, evictedValue, evicted, err
+	}
+	for index := range state.shards {
+		candidate := &state.shards[index]
+		if candidate == target {
+			continue
+		}
+		candidate.mu.Lock()
+		for existingKey, existingItem := range candidate.items {
+			delete(candidate.items, existingKey)
+			evictedKey, evictedValue, evicted = existingKey, existingItem.Value, true
+			break
+		}
+		candidate.mu.Unlock()
+		if evicted {
+			break
+		}
+	}
 	target.items[key] = item
-	if found || state.entryCount.Add(1) <= state.maxEntries {
-		return "", zero, false
+	if !evicted {
+		state.entryCount.Add(1)
 	}
-	for evictedKey, item := range target.items {
+	target.mu.Unlock()
+	return evictedKey, evictedValue, evicted, nil
+}
+
+// The caller holds target.mu. A false handled value means the global cache is
+// full and this shard has no key to replace.
+func storeInShardLocked[V any](state *cacheState[V], target *shard[V], key string, item Item[V], mode storeMode) (string, V, bool, bool, error) {
+	var zero V
+	if current, found := target.items[key]; found {
+		expired := current.expiredAt(time.Now().UnixNano())
+		if mode == storeAdd && !expired {
+			return "", zero, false, true, fmt.Errorf("%w: %q", ErrExists, key)
+		}
+		if mode != storeIfAbsent || expired {
+			target.items[key] = item
+		}
+		return "", zero, false, true, nil
+	}
+	if reserveCacheSlot(state) {
+		target.items[key] = item
+		return "", zero, false, true, nil
+	}
+	for evictedKey, evictedItem := range target.items {
 		delete(target.items, evictedKey)
-		state.entryCount.Add(-1)
-		return evictedKey, item.Value, true
+		target.items[key] = item
+		return evictedKey, evictedItem.Value, true, true, nil
 	}
-	state.entryCount.Add(-1)
-	return "", zero, false
+	return "", zero, false, false, nil
+}
+
+func reserveCacheSlot[V any](state *cacheState[V]) bool {
+	for {
+		count := state.entryCount.Load()
+		if count >= state.maxEntries {
+			return false
+		}
+		if state.entryCount.CompareAndSwap(count, count+1) {
+			return true
+		}
+	}
 }
 
 func (janitor *janitor[V]) run() {

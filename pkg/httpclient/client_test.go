@@ -76,6 +76,10 @@ func TestNewRejectsInvalidConfiguration(t *testing.T) {
 			},
 		},
 		{
+			name:   "negative connection pool limit",
+			config: Config{MaxConnsPerHost: -1},
+		},
+		{
 			name: "nil transport middleware",
 			config: Config{
 				TransportMiddleware: []TransportMiddleware{nil},
@@ -142,6 +146,19 @@ func TestNewDefaultTransportRequiresTLS12(t *testing.T) {
 	require.NoError(t, err)
 	require.NotNil(t, transport.TLSClientConfig)
 	require.Equal(t, uint16(tls.VersionTLS12), transport.TLSClientConfig.MinVersion)
+}
+
+func TestNewConfiguresConnectionPool(t *testing.T) {
+	client, err := New(Config{
+		MaxIdleConns: 200, MaxIdleConnsPerHost: 40, MaxConnsPerHost: 80,
+	})
+	require.NoError(t, err)
+	t.Cleanup(func() { require.NoError(t, client.Close()) })
+	transport, err := client.HTTPTransport()
+	require.NoError(t, err)
+	require.Equal(t, 200, transport.MaxIdleConns)
+	require.Equal(t, 40, transport.MaxIdleConnsPerHost)
+	require.Equal(t, 80, transport.MaxConnsPerHost)
 }
 
 func TestNewDoesNotMutateBaseURLs(t *testing.T) {

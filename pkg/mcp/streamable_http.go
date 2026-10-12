@@ -67,7 +67,21 @@ func (h *Handler) admitSession(request *http.Request) (*http.Request, uint64, st
 			h.sessionAdmissionMu.Unlock()
 			return request, 0, "MCP handler is closed"
 		}
+		revision := h.sessionAdmissionRevision
+		h.sessionAdmissionMu.Unlock()
+
+		// Sessions() copies the SDK's session list. Keep that O(n) work out of
+		// the admission lock, then retry if an in-flight admission completed.
 		activeSessions := activeSessionCount(h.Server)
+		h.sessionAdmissionMu.Lock()
+		if revision != h.sessionAdmissionRevision {
+			h.sessionAdmissionMu.Unlock()
+			continue
+		}
+		if h.closed {
+			h.sessionAdmissionMu.Unlock()
+			return request, 0, "MCP handler is closed"
+		}
 		pendingAdmissions := len(h.sessionAdmissions)
 		if activeSessions+pendingAdmissions < h.MaxActiveSessions {
 			ctx, cancel := context.WithCancel(request.Context())
@@ -103,6 +117,7 @@ func (h *Handler) finishSessionAdmission(admissionID uint64, sessionID string) {
 	cancel := h.sessionAdmissions[admissionID]
 	delete(h.sessionAdmissions, admissionID)
 	if cancel != nil {
+		h.sessionAdmissionRevision++
 		h.notifySessionAdmissionChangeLocked()
 	}
 	closed := h.closed

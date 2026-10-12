@@ -11,6 +11,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"testing/synctest"
 	"time"
@@ -137,6 +138,33 @@ func TestCacheBoundsEntries(t *testing.T) {
 	cache.Set("second", 2, DefaultExpiration)
 	cache.Set("third", 3, DefaultExpiration)
 
+	if got := cache.Len(); got != 2 {
+		t.Fatalf("Len() = %d, want 2", got)
+	}
+	if value, found := cache.Get("third"); !found || value != 3 {
+		t.Fatalf("new key = %d, %v; want 3, true", value, found)
+	}
+}
+
+func TestCacheRetainsNewKeyWhenFull(t *testing.T) {
+	cache := NewWithMaxEntries[int](NoExpiration, 0, 2, 2)
+	keysByShard := [2][]string{}
+	for index := 0; len(keysByShard[0]) < 2 || len(keysByShard[1]) < 1; index++ {
+		key := fmt.Sprintf("key-%d", index)
+		for shardIndex := range cache.state.shards {
+			if cache.shard(key) == &cache.state.shards[shardIndex] {
+				keysByShard[shardIndex] = append(keysByShard[shardIndex], key)
+				break
+			}
+		}
+	}
+	cache.Set(keysByShard[0][0], 1, DefaultExpiration)
+	cache.Set(keysByShard[0][1], 2, DefaultExpiration)
+	cache.Set(keysByShard[1][0], 3, DefaultExpiration)
+
+	if value, found := cache.Get(keysByShard[1][0]); !found || value != 3 {
+		t.Fatalf("new key = %d, %v; want 3, true", value, found)
+	}
 	if got := cache.Len(); got != 2 {
 		t.Fatalf("Len() = %d, want 2", got)
 	}
@@ -513,6 +541,18 @@ func BenchmarkEvictionCallbackDispatch(b *testing.B) {
 	for b.Loop() {
 		notifyEvicted(state, evicted)
 	}
+}
+
+func BenchmarkCacheSetDistinctKeys(b *testing.B) {
+	cache := NewWithMaxEntries[int](NoExpiration, 0, 16, 100_000)
+	var next atomic.Uint64
+	b.ReportAllocs()
+	b.RunParallel(func(worker *testing.PB) {
+		for worker.Next() {
+			key := fmt.Sprintf("key-%d", next.Add(1))
+			cache.Set(key, 1, DefaultExpiration)
+		}
+	})
 }
 
 func TestDjb33UsesEveryKeyByte(t *testing.T) {

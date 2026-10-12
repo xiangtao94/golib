@@ -245,6 +245,44 @@ func TestGatewayRejectsOversizedRequestBeforeCallingAgent(t *testing.T) {
 	require.False(t, called)
 }
 
+func TestGatewayPayloadBudgetLimitsConcurrentRuns(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	gateway := newTestGateway(t, func(request *http.Request) (*http.Response, error) {
+		close(started)
+		select {
+		case <-release:
+			return streamResponse(http.StatusOK, "data: {\"type\":\"RUN_FINISHED\",\"runId\":\"r\"}\n\n"), nil
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		}
+	}, func(config *Config) {
+		config.MaxRequestBytes = 64
+		config.MaxEventBytes = 64
+		config.MaxConcurrent = 2
+		config.MaxInFlightPayloadBytes = 128
+	})
+	engine := testEngine(gateway)
+	firstDone := make(chan *deadlineRecorder, 1)
+	go func() {
+		response := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+		Wrap(engine).ServeHTTP(response, requestForRun(`{"threadId":"t","runId":"r","messages":[]}`))
+		firstDone <- response
+	}()
+	<-started
+
+	second := &deadlineRecorder{ResponseRecorder: httptest.NewRecorder()}
+	Wrap(engine).ServeHTTP(second, requestForRun(`{"threadId":"t","runId":"r","messages":[]}`))
+	require.Equal(t, http.StatusServiceUnavailable, second.Code)
+	close(release)
+	select {
+	case first := <-firstDone:
+		require.Equal(t, http.StatusOK, first.Code)
+	case <-time.After(time.Second):
+		t.Fatal("first run did not complete")
+	}
+}
+
 func TestGatewayRequiresWrappedServerBeforeCallingAgent(t *testing.T) {
 	called := false
 	gateway := newTestGateway(t, func(*http.Request) (*http.Response, error) {
