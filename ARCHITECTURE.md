@@ -5,7 +5,7 @@
 ```text
 业务 module
   ├─> Core module（config / lifecycle / health / web / env / zlog / httpclient / middleware / job / render）
-  └─> 按需 adapter module（mysql / mongodb / redis / s3 / milvus / elasticsearch / mcp）
+  └─> 按需 adapter module（mysql / mongodb / redis / s3 / milvus / elasticsearch / mcp / agui）
            └─> Core 中的 env / zlog package
   └─> 按需 instrumentation module（otel）
            └─> Core 中的 httpclient / zlog package
@@ -36,11 +36,12 @@ interface 只放在使用它的 seam，不为“将来可能替换”预建同�
 
 | 资源 | 创建 owner | 关闭 owner |
 |---|---|---|
-| HTTP server | 应用入口 | 取消 app context，server 完成 graceful shutdown |
+| HTTP server | `App.Run` 或应用入口 | 取消 app context，server 完成 graceful shutdown |
 | Resty HTTP client | 调用它的业务 module | `resty.Client.Close` |
-| Logger | 应用入口 | `zlog.CloseLogger` |
+| Logger | `NewApp` 或 `Bootstraps` | `App.Stop`，在其他关闭回调之后执行 `zlog.CloseLogger` |
 | Cron/Cycle | 应用入口或业务 runtime | 取消 parent context 或带 deadline 的 `Stop` |
 | OpenTelemetry SDK/provider/exporter | 应用入口 | SDK shutdown |
 | DB/Redis/外部 adapter | 业务基础设施组装层 | 同一组装层 |
+| AG-UI 默认 HTTP transport | `agui.Gateway` | `Gateway.Close`；注入的 client 仍由调用方管理 |
 
 库不捕获 OS signal，不在 GET 中写状态，不持有包级业务连接，也不为了审计扩展业务存储。

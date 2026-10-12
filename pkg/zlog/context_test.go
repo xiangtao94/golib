@@ -2,6 +2,7 @@ package zlog
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/require"
@@ -20,6 +21,37 @@ func TestEnsureRequestIDUsesIncomingCandidate(t *testing.T) {
 
 	require.Equal(t, "req-456", requestID)
 	require.Equal(t, "req-456", GetRequestID(ctx))
+}
+
+func TestEnsureRequestIDAcceptsMaximumLength(t *testing.T) {
+	candidate := strings.Repeat("a", maxRequestIDLength)
+	_, requestID := EnsureRequestID(context.Background(), candidate)
+	require.Equal(t, candidate, requestID)
+}
+
+func TestEnsureRequestIDReplacesInvalidCandidates(t *testing.T) {
+	for _, candidate := range []string{
+		"contains space",
+		"line\nbreak",
+		"comma,separated",
+		"非ASCII",
+		strings.Repeat("a", maxRequestIDLength+1),
+	} {
+		t.Run(candidate, func(t *testing.T) {
+			ctx, requestID := EnsureRequestID(context.Background(), candidate)
+			require.NotEqual(t, candidate, requestID)
+			require.True(t, validRequestID(requestID))
+			require.Equal(t, requestID, GetRequestID(ctx))
+		})
+	}
+}
+
+func TestEnsureRequestIDReplacesInvalidContextValue(t *testing.T) {
+	ctx := WithRequestID(context.Background(), "invalid value")
+	ctx, requestID := EnsureRequestID(ctx, "valid-id:1")
+
+	require.Equal(t, "valid-id:1", requestID)
+	require.Equal(t, requestID, GetRequestID(ctx))
 }
 
 func TestEnsureRequestIDIsStableForStandardContext(t *testing.T) {

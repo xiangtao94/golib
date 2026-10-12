@@ -85,3 +85,20 @@ func TestNewRejectsUnnamedAndEmptyHooks(t *testing.T) {
 	_, err = New(Hook{Name: "empty"})
 	require.Error(t, err)
 }
+
+func TestAddStopAfterStartUsesReverseOrderAndRejectsLateRegistration(t *testing.T) {
+	var events []string
+	manager, err := New(Hook{
+		Name:   "logger",
+		OnStop: func(context.Context) error { events = append(events, "logger"); return nil },
+	})
+	require.NoError(t, err)
+	require.NoError(t, manager.Start(context.Background()))
+	require.NoError(t, manager.AddStop("database", func(context.Context) error {
+		events = append(events, "database")
+		return nil
+	}))
+	require.NoError(t, manager.Stop(context.Background()))
+	require.Equal(t, []string{"database", "logger"}, events)
+	require.ErrorIs(t, manager.AddStop("late", func(context.Context) error { return nil }), ErrInvalidState)
+}

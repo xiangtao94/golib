@@ -16,6 +16,7 @@ jobs:
       matrix:
         module:
           - .
+          - pkg/agui
           - pkg/elasticsearch
           - pkg/mcp
           - pkg/milvus

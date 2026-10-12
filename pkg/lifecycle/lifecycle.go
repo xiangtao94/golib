@@ -55,6 +55,26 @@ func New(hooks ...Hook) (*Manager, error) {
 	}, nil
 }
 
+// AddStop registers an already started resource for reverse-order shutdown.
+// It may be called before or after Start, but not while starting or stopping.
+func (manager *Manager) AddStop(name string, stop func(context.Context) error) error {
+	if strings.TrimSpace(name) == "" || stop == nil {
+		return errors.New("lifecycle: stop hook requires a name and callback")
+	}
+	hook := Hook{Name: name, OnStop: stop}
+	manager.mu.Lock()
+	defer manager.mu.Unlock()
+	switch manager.state {
+	case stateNew:
+		manager.hooks = append(manager.hooks, hook)
+	case stateStarted:
+		manager.started = append(manager.started, hook)
+	default:
+		return fmt.Errorf("%w: add stop hook in state %d", ErrInvalidState, manager.state)
+	}
+	return nil
+}
+
 // Start invokes hooks in registration order. A failure stops only the hooks
 // that started successfully and returns both the start and rollback errors.
 func (manager *Manager) Start(ctx context.Context) error {

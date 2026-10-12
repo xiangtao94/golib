@@ -13,86 +13,171 @@ import (
 	"net"
 	"net/http"
 	"net/http/pprof"
+	"strings"
 	"time"
 
 	"github.com/gin-gonic/gin"
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/xiangtao94/golib/pkg/env"
+	"github.com/xiangtao94/golib/pkg/health"
+	"github.com/xiangtao94/golib/pkg/lifecycle"
 	"github.com/xiangtao94/golib/pkg/middleware"
 	"github.com/xiangtao94/golib/pkg/zlog"
 )
 
 var ErrNilContext = errors.New("golib: nil context")
 
-type BootstrapOption func(engine *gin.Engine) error
+type BootstrapOption func(*bootstrapOptions) error
 
-// 1. 应用名称
-func WithAppName(appName string) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		env.SetAppName(appName)
-		return nil
-	}
+type bootstrapOptions struct {
+	language          string
+	logConfig         *zlog.LogConfig
+	accessLogConfig   *middleware.AccessLoggerConfig
+	recoveryHandler   gin.RecoveryFunc
+	metricsCollectors []prometheus.Collector
+	metricsRequested  bool
+	readinessGate     *health.Gate
 }
 
-// 2. 国际化环境
+// WithLang sets the process default language. Request-specific language may
+// still be set through env.WithLanguage.
 func WithLang(lang string) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		env.SetLanguage(lang)
+	return func(options *bootstrapOptions) error {
+		options.language = lang
 		return nil
 	}
 }
 
-// 3. 日志
+// WithZlog customizes the process logger initialized by Bootstraps.
 func WithZlog(conf zlog.LogConfig) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		if conf.AppName == "" {
-			conf.AppName = env.GetAppName()
-		}
-		_, err := zlog.InitLog(conf)
-		return err
+	return func(options *bootstrapOptions) error {
+		options.logConfig = &conf
+		return nil
 	}
 }
 
-// 4. Access Log - 支持可选配置
+// WithAccessLog installs access logging before panic recovery.
 func WithAccessLog(conf ...middleware.AccessLoggerConfig) BootstrapOption {
-	return func(engine *gin.Engine) error {
+	return func(options *bootstrapOptions) error {
 		logConfig := middleware.DefaultAccessLoggerConfig()
 		if len(conf) > 0 {
 			logConfig = conf[0]
 		}
-		engine.Use(middleware.AccessLog(logConfig))
+		options.accessLogConfig = &logConfig
 		return nil
 	}
 }
 
-// 5. Recovery
+// WithRecovery customizes the recovery installed by Bootstraps.
 func WithRecovery(handler gin.RecoveryFunc) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		engine.Use(middleware.Recovery(zlog.NewLoggerWithSkip(1), handler))
+	return func(options *bootstrapOptions) error {
+		options.recoveryHandler = handler
 		return nil
 	}
 }
 
-// 6. Prometheus
+// WithPrometheus installs HTTP metrics and registers /metrics.
 func WithPrometheus(cs ...prometheus.Collector) BootstrapOption {
-	return func(engine *gin.Engine) error {
-		_, err := middleware.RegistryMetrics(engine, cs...)
-		return err
+	return func(options *bootstrapOptions) error {
+		if options.metricsRequested {
+			return errors.New("golib: prometheus already configured")
+		}
+		options.metricsCollectors = cs
+		options.metricsRequested = true
+		return nil
 	}
 }
 
-func Bootstraps(engine *gin.Engine, opts ...BootstrapOption) error {
-	engine.Use(middleware.RequestID())
+// WithReadiness registers /readyz with an application-owned readiness gate.
+// The gate starts not ready; the application marks it ready after startup and
+// not ready before draining.
+func WithReadiness(gate *health.Gate) BootstrapOption {
+	return func(options *bootstrapOptions) error {
+		if gate == nil {
+			return errors.New("golib: nil readiness gate")
+		}
+		options.readinessGate = gate
+		return nil
+	}
+}
+
+// Bootstraps configures a Gin engine before business routes are registered.
+// appName is required and supplies the default name for logging and metrics.
+// The returned App owns logger shutdown; call RunServer or Stop to release it.
+func Bootstraps(engine *gin.Engine, appName string, opts ...BootstrapOption) (*App, error) {
+	if engine == nil {
+		return nil, errors.New("golib: nil engine")
+	}
+	if strings.TrimSpace(appName) == "" {
+		return nil, errors.New("golib: app name is required")
+	}
+	if appName != strings.TrimSpace(appName) || appName == "." || appName == ".." ||
+		strings.ContainsAny(appName, "/\\") {
+		return nil, errors.New("golib: invalid app name")
+	}
+	options := &bootstrapOptions{}
 	for _, opt := range opts {
 		if opt == nil {
 			continue
 		}
-		if err := opt(engine); err != nil {
-			return err
+		if err := opt(options); err != nil {
+			return nil, err
 		}
 	}
-	return nil
+
+	var metrics *middleware.Metrics
+	if options.metricsRequested {
+		var err error
+		metrics, err = middleware.NewMetrics(middleware.MetricsConfig{
+			AppName:    appName,
+			Collectors: options.metricsCollectors,
+		})
+		if err != nil {
+			return nil, err
+		}
+	}
+	logConfig := zlog.DefaultLogConfig()
+	if options.logConfig != nil {
+		logConfig = *options.logConfig
+	}
+	logConfig.AppName = appName
+	if _, err := zlog.InitLog(logConfig); err != nil {
+		return nil, err
+	}
+	env.SetAppName(appName)
+	if options.language != "" {
+		env.SetLanguage(options.language)
+	}
+	manager, err := lifecycle.New(lifecycle.Hook{
+		Name:   "zlog",
+		OnStop: func(context.Context) error { return zlog.CloseLogger() },
+	})
+	if err != nil {
+		_ = zlog.CloseLogger()
+		return nil, err
+	}
+	if err := manager.Start(context.Background()); err != nil {
+		_ = zlog.CloseLogger()
+		return nil, err
+	}
+
+	engine.Use(middleware.RequestID())
+	if options.accessLogConfig != nil {
+		engine.Use(middleware.AccessLog(*options.accessLogConfig))
+	}
+	if metrics != nil {
+		engine.Use(metrics.Middleware())
+	}
+	engine.Use(middleware.Recovery(zlog.NewLoggerWithSkip(1), options.recoveryHandler))
+	engine.GET("/livez", gin.WrapH(health.New().LivenessHandler()))
+	if options.readinessGate != nil {
+		engine.GET("/readyz", gin.WrapH(options.readinessGate.ReadinessHandler()))
+	}
+	if metrics != nil {
+		middleware.RegisterMetricsRoute(engine, metrics)
+	}
+	return &App{Engine: engine, manager: manager}, nil
 }
 
 // RegisterPprof explicitly registers pprof handlers on the supplied engine.

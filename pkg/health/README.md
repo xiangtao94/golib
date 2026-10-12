@@ -9,3 +9,4 @@
 
 具体依赖是否影响 readiness 由应用决定，基础库不自动探测业务连接。
 
+调用 `golib.NewApp` 或 `golib.Bootstraps` 时会默认注册 `GET /livez`。Gin 服务需要就绪探针时，创建 `Gate` 并传给 `golib.WithReadiness(gate)`，由应用在启动完成和 draining 开始时切换状态；其他 HTTP 框架可直接使用上述 `http.Handler`。

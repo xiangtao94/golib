@@ -24,6 +24,8 @@ logger.Info("started")
 
 `DefaultLogConfig` 默认输出 JSON 到 stdout，不写文件、不启用 buffer。直接构造 `LogConfig{}` 会得到显式零值输出，因此需要默认行为时应从 `DefaultLogConfig` 开始。
 
+Gin 服务调用 `golib.NewApp(appName, ...)` 或 `golib.Bootstraps(engine, appName, ...)` 时会自动使用默认配置初始化 zlog。需要自定义输出时传入 `golib.WithZlog(config)`；日志应用名始终使用传入的应用名。`App.Run` 和 `App.RunServer` 会在服务退出后关闭日志，不需要单独 `CloseLogger`。
+
 ## Context
 
 ```go

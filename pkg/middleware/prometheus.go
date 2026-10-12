@@ -116,6 +116,12 @@ func (metrics *Metrics) Handler() http.Handler {
 
 func RegisterMetrics(engine *gin.Engine, metrics *Metrics) {
 	engine.Use(metrics.Middleware())
+	RegisterMetricsRoute(engine, metrics)
+}
+
+// RegisterMetricsRoute registers the scrape route after all global middleware
+// has been installed. Use RegisterMetrics when installing both together.
+func RegisterMetricsRoute(engine *gin.Engine, metrics *Metrics) {
 	handler := metrics.Handler()
 	engine.GET(metrics.path, func(ctx *gin.Context) {
 		ctx.Request = ctx.Request.WithContext(zlog.WithNoLog(ctx.Request.Context()))
