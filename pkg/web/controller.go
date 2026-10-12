@@ -2,6 +2,7 @@ package web
 
 import (
 	"context"
+	"net/http"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -18,8 +19,9 @@ type Controller[T any] interface {
 }
 
 type controllerConfig struct {
-	binding  binding.Binding
-	renderer *render.JSONRenderer
+	binding       binding.Binding
+	renderer      *render.JSONRenderer
+	successStatus int
 }
 
 type ControllerOption func(*controllerConfig)
@@ -36,6 +38,13 @@ func WithRenderer(renderer *render.JSONRenderer) ControllerOption {
 	}
 }
 
+// WithSuccessStatus sets the HTTP status for successful controller responses.
+func WithSuccessStatus(status int) ControllerOption {
+	return func(config *controllerConfig) {
+		config.successStatus = status
+	}
+}
+
 type renderPolicy interface {
 	ShouldRender() bool
 }
@@ -48,13 +57,17 @@ func Handle[T any](controller Controller[T], options ...ControllerOption) gin.Ha
 		panic("web: nil controller")
 	}
 	config := controllerConfig{
-		binding:  binding.Form,
-		renderer: render.NewJSONRenderer(nil),
+		binding:       binding.Form,
+		renderer:      render.NewJSONRenderer(nil),
+		successStatus: http.StatusOK,
 	}
 	for _, option := range options {
 		if option != nil {
 			option(&config)
 		}
+	}
+	if config.successStatus < 200 || config.successStatus >= 300 || config.successStatus == http.StatusNoContent || config.successStatus == http.StatusResetContent {
+		panic("web: success status must allow a response body")
 	}
 
 	return func(ginCtx *gin.Context) {
@@ -84,7 +97,7 @@ func Handle[T any](controller Controller[T], options ...ControllerOption) gin.Ha
 			return
 		}
 		if policy, ok := controller.(renderPolicy); !ok || policy.ShouldRender() {
-			config.renderer.Success(ginCtx, data)
+			config.renderer.SuccessWithStatus(ginCtx, config.successStatus, data)
 		}
 	}
 }

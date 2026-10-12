@@ -48,3 +48,21 @@ func TestHandleRejectsNilController(t *testing.T) {
 		Handle[controllerRequest](nil)
 	})
 }
+
+func TestHandleUsesAcceptedSuccessStatus(t *testing.T) {
+	engine := gin.New()
+	var requestID string
+	engine.GET("/", Handle[controllerRequest](&testController{dependency: "injected", requestID: &requestID}, WithSuccessStatus(http.StatusAccepted)))
+
+	response := httptest.NewRecorder()
+	engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/?name=alice", nil))
+
+	require.Equal(t, http.StatusAccepted, response.Code)
+	require.Contains(t, response.Body.String(), `"code":202`)
+}
+
+func TestHandleRejectsSuccessStatusWithoutBody(t *testing.T) {
+	require.Panics(t, func() {
+		Handle[controllerRequest](&testController{}, WithSuccessStatus(http.StatusNoContent))
+	})
+}

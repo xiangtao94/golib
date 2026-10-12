@@ -23,7 +23,9 @@ func TestFailureUsesHTTPStatusAndRequestID(t *testing.T) {
 
 	require.Equal(t, http.StatusBadRequest, response.Code)
 	require.NotEmpty(t, response.Header().Get(zlog.HeaderRequestID))
-	require.Contains(t, response.Body.String(), `"code":"INVALID_ARGUMENT"`)
+	require.Contains(t, response.Body.String(), `"code":400`)
+	require.Contains(t, response.Body.String(), `"error_code":"INVALID_ARGUMENT"`)
+	require.Contains(t, response.Body.String(), `"data":null`)
 	require.Contains(t, response.Body.String(), `"reason":"INVALID_ARGUMENT"`)
 	require.Contains(t, response.Body.String(), `"request_id":`)
 }
@@ -37,7 +39,8 @@ func TestUnknownFailureIsInternalServerError(t *testing.T) {
 
 	require.Equal(t, http.StatusInternalServerError, response.Code)
 	require.NotContains(t, response.Body.String(), "private detail")
-	require.Contains(t, response.Body.String(), `"code":"INTERNAL"`)
+	require.Contains(t, response.Body.String(), `"code":500`)
+	require.Contains(t, response.Body.String(), `"error_code":"INTERNAL"`)
 }
 
 func TestRendererFactoryIsInstanceScoped(t *testing.T) {
@@ -48,7 +51,7 @@ func TestRendererFactoryIsInstanceScoped(t *testing.T) {
 	input := Response{Message: "first"}
 
 	require.Equal(t, map[string]any{"custom": "first"}, first.factory(input))
-	require.Equal(t, input, second.factory(input))
+	require.Equal(t, defaultFactory(input), second.factory(input))
 }
 
 func TestFailureRendersStableDomainContract(t *testing.T) {
@@ -63,11 +66,25 @@ func TestFailureRendersStableDomainContract(t *testing.T) {
 
 	require.Equal(t, http.StatusNotFound, response.Code)
 	require.JSONEq(t, `{
-		"code": "USER_NOT_FOUND",
+		"code": 404,
+		"data": null,
+		"error_code": "USER_NOT_FOUND",
 		"reason": "NOT_FOUND",
 		"message": "user not found",
 		"request_id": "`+response.Header().Get(zlog.HeaderRequestID)+`",
-		"retryable": false,
 		"details": {"field": "user_id"}
 	}`, response.Body.String())
+}
+
+func TestSuccessWithStatusUsesNumericCodeAndData(t *testing.T) {
+	response := httptest.NewRecorder()
+	ctx, _ := gin.CreateTestContext(response)
+	ctx.Request = httptest.NewRequest(http.MethodPost, "/", nil)
+
+	NewJSONRenderer(nil).SuccessWithStatus(ctx, http.StatusAccepted, map[string]any{"id": "work-1"})
+
+	require.Equal(t, http.StatusAccepted, response.Code)
+	require.Contains(t, response.Body.String(), `"code":202`)
+	require.Contains(t, response.Body.String(), `"data":{"id":"work-1"}`)
+	require.NotContains(t, response.Body.String(), `"error_code"`)
 }

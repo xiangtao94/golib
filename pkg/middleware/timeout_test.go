@@ -43,7 +43,8 @@ func TestTimeoutMiddlewareReturnsGatewayTimeoutWhenHandlerHonorsCancellation(t *
 		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/cooperative", nil))
 
 		require.Equal(t, http.StatusGatewayTimeout, response.Code)
-		require.Contains(t, response.Body.String(), `"code":"DEADLINE_EXCEEDED"`)
+		require.Contains(t, response.Body.String(), `"code":504`)
+		require.Contains(t, response.Body.String(), `"error_code":"DEADLINE_EXCEEDED"`)
 		require.Contains(t, response.Body.String(), `"reason":"TIMEOUT"`)
 		require.Contains(t, response.Body.String(), `"request_id":`)
 	})

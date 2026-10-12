@@ -16,16 +16,43 @@ import (
 )
 
 type Response struct {
-	Code      string         `json:"code"`
-	Reason    string         `json:"reason"`
-	Message   string         `json:"message"`
-	RequestID string         `json:"request_id"`
-	Retryable bool           `json:"retryable"`
-	Details   map[string]any `json:"details,omitempty"`
-	Data      any            `json:"data,omitempty"`
+	Code       string         `json:"code"`
+	HTTPStatus int            `json:"-"`
+	Reason     string         `json:"reason"`
+	Message    string         `json:"message"`
+	RequestID  string         `json:"request_id"`
+	Retryable  bool           `json:"retryable"`
+	Details    map[string]any `json:"details,omitempty"`
+	Data       any            `json:"data,omitempty"`
 }
 
 type Factory func(Response) any
+
+// defaultResponse is the JSON contract exposed by the default renderer.
+// Code mirrors the HTTP status; ErrorCode preserves the business error identity.
+type defaultResponse struct {
+	Code      int            `json:"code"`
+	Data      any            `json:"data"`
+	ErrorCode string         `json:"error_code,omitempty"`
+	Reason    string         `json:"reason,omitempty"`
+	Message   string         `json:"message,omitempty"`
+	RequestID string         `json:"request_id,omitempty"`
+	Retryable bool           `json:"retryable,omitempty"`
+	Details   map[string]any `json:"details,omitempty"`
+}
+
+func defaultFactory(response Response) any {
+	result := defaultResponse{
+		Code: response.HTTPStatus, Data: response.Data,
+		Reason: response.Reason, Message: response.Message,
+		RequestID: response.RequestID, Retryable: response.Retryable,
+		Details: response.Details,
+	}
+	if response.Code != "OK" {
+		result.ErrorCode = response.Code
+	}
+	return result
+}
 
 // JSONRenderer owns its response factory. A service may adapt the standard
 // contract at its outermost HTTP edge without changing business errors.
@@ -35,7 +62,7 @@ type JSONRenderer struct {
 
 func NewJSONRenderer(factory Factory) *JSONRenderer {
 	if factory == nil {
-		factory = func(response Response) any { return response }
+		factory = defaultFactory
 	}
 	return &JSONRenderer{factory: factory}
 }
@@ -72,11 +99,20 @@ func (renderer *JSONRenderer) Write(ctx *gin.Context, httpStatus int, response R
 		httpStatus = http.StatusInternalServerError
 	}
 	response.RequestID = ensureRequestID(ctx)
+	response.HTTPStatus = httpStatus
 	ctx.JSON(httpStatus, renderer.factory(response))
 }
 
 func (renderer *JSONRenderer) Success(ctx *gin.Context, data any) {
-	renderer.Write(ctx, http.StatusOK, Response{
+	renderer.SuccessWithStatus(ctx, http.StatusOK, data)
+}
+
+// SuccessWithStatus renders a successful response with its actual HTTP status.
+func (renderer *JSONRenderer) SuccessWithStatus(ctx *gin.Context, httpStatus int, data any) {
+	if httpStatus < 200 || httpStatus >= 300 || httpStatus == http.StatusNoContent || httpStatus == http.StatusResetContent {
+		panic("render: success status must allow a response body")
+	}
+	renderer.Write(ctx, httpStatus, Response{
 		Code:      "OK",
 		Reason:    "OK",
 		Message:   "success",

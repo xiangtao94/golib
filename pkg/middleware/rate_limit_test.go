@@ -87,7 +87,8 @@ func TestRateLimitMiddlewareUsesTheSharedErrorContract(t *testing.T) {
 	second := httptest.NewRecorder()
 	engine.ServeHTTP(second, httptest.NewRequest(http.MethodGet, "/", nil))
 	require.Equal(t, http.StatusTooManyRequests, second.Code)
-	require.Contains(t, second.Body.String(), `"code":"RESOURCE_EXHAUSTED"`)
+	require.Contains(t, second.Body.String(), `"code":429`)
+	require.Contains(t, second.Body.String(), `"error_code":"RESOURCE_EXHAUSTED"`)
 	require.Contains(t, second.Body.String(), `"reason":"RATE_LIMITED"`)
 	require.Contains(t, second.Body.String(), `"request_id":`)
 }
