@@ -239,7 +239,7 @@ func AccessLog(conf AccessLoggerConfig) gin.HandlerFunc {
 		fields = append(fields,
 			zlog.String("startTime", start.Format("2006-01-02 15:04:05.000")),
 			zlog.String("endTime", end.Format("2006-01-02 15:04:05.000")),
-			zlog.String("cost", fmt.Sprintf("%vms", end.Sub(start).Seconds()*1000)),
+			zlog.String("cost", fmt.Sprintf("%.2fms", end.Sub(start).Seconds()*1000)),
 		)
 		fields = append(fields, getAccessFields(c)...)
 		zlog.AccessInfo(c.Request.Context(), fields...)
