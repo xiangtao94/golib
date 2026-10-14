@@ -5,6 +5,7 @@ import (
 	stderrors "errors"
 	"maps"
 	"net/http"
+	"runtime"
 	"strings"
 )
 
@@ -18,6 +19,7 @@ type Error struct {
 	retryable  bool
 	details    map[string]any
 	cause      error
+	stack      []uintptr
 }
 
 func New(code, message string, httpStatus int) *Error {
@@ -112,6 +114,11 @@ func (err *Error) WithDetails(details map[string]any) *Error {
 func (err *Error) Wrap(cause error) *Error {
 	clone := err.clone()
 	clone.cause = cause
+	clone.stack = nil
+	if cause != nil {
+		pcs := make([]uintptr, 32)
+		clone.stack = pcs[:runtime.Callers(2, pcs)]
+	}
 	return clone
 }
 

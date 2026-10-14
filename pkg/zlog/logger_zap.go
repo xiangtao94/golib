@@ -70,7 +70,7 @@ func newLoggerWithSkipLocked(skip int) *zap.Logger {
 		}
 	}
 	core := buildZapCore(false)
-	logger := zap.New(core, zap.Fields(), zap.WithCaller(true), zap.Development(), zap.AddCallerSkip(skip))
+	logger := zap.New(core, zap.Fields(), zap.WithCaller(true), zap.AddStacktrace(zap.ErrorLevel), zap.Development(), zap.AddCallerSkip(skip))
 	if skip >= 0 && skip <= maxCachedCallerSkip {
 		zapLoggerCache[skip] = logger
 	}

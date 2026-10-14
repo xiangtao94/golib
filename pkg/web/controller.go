@@ -74,14 +74,16 @@ func Handle[T any](action func(*gin.Context, *T) (any, error), options ...Option
 			err = ginCtx.ShouldBind(&request)
 		}
 		if err != nil {
-			zlog.Errorf(ginCtx, "handler %s parameter binding failed: %v", ginCtx.FullPath(), err)
+			zlog.ErrorLogger(requestContext, "handler parameter binding failed",
+				zlog.String("path", ginCtx.FullPath()), zlog.String("error", errors.Diagnostic(err)))
 			config.renderer.Failure(ginCtx, errors.ErrInvalidArgument)
 			return
 		}
 
 		data, err := action(ginCtx, &request)
 		if err != nil {
-			zlog.Errorf(ginCtx, "handler %s action failed: %v", ginCtx.FullPath(), err)
+			zlog.ErrorLogger(requestContext, "handler action failed",
+				zlog.String("path", ginCtx.FullPath()), zlog.String("error", errors.Diagnostic(err)))
 			config.renderer.Failure(ginCtx, err)
 			return
 		}
