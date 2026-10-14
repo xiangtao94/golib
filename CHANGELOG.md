@@ -1,5 +1,11 @@
 # Changelog
 
+## pkg/redis/v1.1.0
+
+- Add `WatchWithRetry` with bounded optimistic transaction retries and context-aware backoff; non-conflict errors are returned immediately.
+- Export `Tx`, `Pipeliner`, and `ErrTxConflict` so consumers can use transaction callbacks through golib imports.
+- Document callback replay, side-effect boundaries, Redis command-error semantics, and cluster hash-slot constraints.
+
 ## v1.10.1
 
 - Log private error chains (including joined causes), wrapping stacks and request IDs from `web.Handle` while preserving safe public error responses.

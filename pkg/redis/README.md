@@ -170,22 +170,34 @@ for _, cmd := range cmds {
 
 ### 事务操作
 
+从 `pkg/redis/v1.1.0` 起，使用 golib 的 `Tx`、`Pipeliner` 和 `WatchWithRetry` 即可编写 Go 事务逻辑，无需在业务代码导入 go-redis：
+
 ```go
-// 使用事务
-err := client.Watch(ctx, func(tx *redis.Tx) error {
-    // 在事务内执行操作
-    _, err := tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
-        pipe.Set(ctx, "key1", "value1", time.Hour)
-        pipe.Set(ctx, "key2", "value2", time.Hour)
+import "github.com/xiangtao94/golib/pkg/redis"
+
+err := client.WatchWithRetry(ctx, func(tx *redis.Tx) error {
+    values, err := tx.MGet(ctx, "{account}:balance").Result()
+    if err != nil {
+        return err
+    }
+    if values[0] == nil {
+        return nil
+    }
+    _, err = tx.TxPipelined(ctx, func(pipe redis.Pipeliner) error {
+        pipe.Incr(ctx, "{account}:balance")
         return nil
     })
     return err
-}, "watched_key")
-
-if err != nil {
-    log.Fatal(err)
-}
+}, "{account}:balance")
 ```
+
+- 最多执行 32 次，仅在事务冲突时重试，间隔递增为 1–31 毫秒；耗尽后返回 `redis.ErrTxConflict`。
+- 等待及重试遵守 context 取消；其他业务、连接或命令错误直接返回。
+- 回调可能重复执行，每次重新读取并判断，重置捕获的结果变量。短信、邮件等外部副作用必须放在回调之外。
+- 回调内通过 `tx` 读取、通过 `tx.TxPipelined` 提交写入；只读业务判断可以直接返回 `nil`。
+- 事务内某条命令运行失败不会回滚已经执行的其他命令，提交前需保证键类型及参数有效。
+- 集群模式要求被监听和写入的所有键处于同一 hash slot。
+- `Tx`、`Pipeliner` 是兼容底层命令 API 的公开类型别名，原有 `Watch` 等方法保持可用。
 
 ## 集群配置
 
