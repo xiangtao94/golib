@@ -9,7 +9,10 @@
 - 可选 details；
 - 只供日志和 `errors.Is` / `errors.As` 使用的私有 cause。
 
+`New(code, message, httpStatus...)` 的 HTTP 状态码可省略，默认 500；显式状态码必须在 400–599，否则回退到 500。最多传入一个状态码，传入多个会 panic。现有三参数调用保持不变；如果将 `New` 保存到固定签名的函数变量中，需要将变量签名同步改为 `func(string, string, ...int) *errors.Error`。
+
 ```go
+var ErrMissingMySQL = errors.New("MISSING_MYSQL", "数据库配置缺失") // 默认 500
 var ErrUserNotFound = errors.New(
 	"USER_NOT_FOUND",
 	"user not found",

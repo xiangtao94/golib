@@ -22,7 +22,16 @@ type Error struct {
 	stack      []uintptr
 }
 
-func New(code, message string, httpStatus int) *Error {
+// New creates a public error. HTTP status defaults to 500 when omitted or
+// outside 400-599. At most one explicit HTTP status may be provided.
+func New(code, message string, status ...int) *Error {
+	if len(status) > 1 {
+		panic("errors.New: at most one HTTP status is allowed")
+	}
+	httpStatus := http.StatusInternalServerError
+	if len(status) == 1 {
+		httpStatus = status[0]
+	}
 	code = strings.TrimSpace(code)
 	if code == "" {
 		code = "INTERNAL"
@@ -124,7 +133,7 @@ func (err *Error) Wrap(cause error) *Error {
 
 func (err *Error) clone() *Error {
 	if err == nil {
-		return New("INTERNAL", "internal server error", http.StatusInternalServerError)
+		return New("INTERNAL", "internal server error")
 	}
 	clone := *err
 	clone.details = cloneDetails(err.details)
@@ -148,7 +157,7 @@ func From(err error) *Error {
 }
 
 var (
-	ErrInternal         = New("INTERNAL", "internal server error", http.StatusInternalServerError)
+	ErrInternal         = New("INTERNAL", "internal server error")
 	ErrInvalidArgument  = New("INVALID_ARGUMENT", "invalid request", http.StatusBadRequest)
 	ErrUnauthenticated  = New("UNAUTHENTICATED", "authentication required", http.StatusUnauthorized)
 	ErrPermissionDenied = New("PERMISSION_DENIED", "permission denied", http.StatusForbidden)

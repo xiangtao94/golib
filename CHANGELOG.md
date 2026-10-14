@@ -1,5 +1,9 @@
 # Changelog
 
+## v1.11.0
+
+- Allow `errors.New(code, message)` to default to HTTP 500; existing three-argument calls and invalid-status fallback remain unchanged. More than one status panics. Function-value assignments must use the new variadic signature.
+
 ## pkg/redis/v1.1.0
 
 - Add `WatchWithRetry` with bounded optimistic transaction retries and context-aware backoff; non-conflict errors are returned immediately.

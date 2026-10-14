@@ -36,10 +36,33 @@ func TestErrorOptionsReturnImmutableCopies(t *testing.T) {
 	require.Equal(t, map[string]any{"field": "email"}, configured.Details())
 }
 
-func TestNewNormalizesInvalidHTTPStatus(t *testing.T) {
-	public := New("BROKEN", "broken", http.StatusOK)
-
-	require.Equal(t, http.StatusInternalServerError, public.HTTPStatus())
+func TestNewHTTPStatus(t *testing.T) {
+	for _, test := range []struct {
+		name   string
+		status []int
+		want   int
+	}{
+		{"omitted", nil, http.StatusInternalServerError},
+		{"explicit internal", []int{500}, 500},
+		{"bad request", []int{400}, 400},
+		{"not found", []int{404}, 404},
+		{"upper boundary", []int{599}, 599},
+		{"zero", []int{0}, 500},
+		{"negative", []int{-1}, 500},
+		{"success", []int{200}, 500},
+		{"below boundary", []int{399}, 500},
+		{"above boundary", []int{600}, 500},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			public := New(" CUSTOM ", "public message", test.status...)
+			require.Equal(t, test.want, public.HTTPStatus())
+			require.Equal(t, "CUSTOM", public.Code())
+			require.Equal(t, "CUSTOM", public.Reason())
+			require.Equal(t, "public message", public.Message())
+		})
+	}
+	require.Equal(t, "INTERNAL", New(" ", "internal error").Code())
+	require.Panics(t, func() { New("CUSTOM", "message", 400, 404) })
 }
 
 func TestFromReturnsPublicErrorOrSafeInternalFallback(t *testing.T) {
